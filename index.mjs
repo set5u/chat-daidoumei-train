@@ -55,8 +55,8 @@ const loader = function* () {
     const decoderInput = [];
     const decoderOutput = [];
     for (let j = 0; j < batchSize; j++) {
-      const i = Math.floor(Math.random() * (tokens.length - 16)) + 16;
-      const ea = tokens.slice(i - 16, i - Math.floor(Math.random() * 16) - 1);
+      const i = Math.floor(Math.random() * (tokens.length - 8)) + 8;
+      const ea = tokens.slice(i - 8, i - Math.floor(Math.random() * 8) - 1);
       for (let k = 0; k < ea.length; k++) {
         const ec = (ea[k] = ea[k].slice());
         ec[ec.length] = 2;
