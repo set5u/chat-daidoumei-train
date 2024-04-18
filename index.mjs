@@ -36,7 +36,7 @@ tf.registerGradient({
 const depth = num2char.length;
 const maxLen = 16;
 const models = useNodeExtendedTransformer({
-  dModel: 32,
+  dModel: 16,
   dFF: 32,
   pDropout: 0.1,
   h: 4,
@@ -47,7 +47,7 @@ const models = useNodeExtendedTransformer({
   layers: 4,
 });
 models.trainer.summary();
-const batchSize = 32;
+const batchSize = 16;
 const loader = function* () {
   const zeros = Array(maxLen).fill(0);
   while (true) {
@@ -56,7 +56,7 @@ const loader = function* () {
     const decoderOutput = [];
     for (let j = 0; j < batchSize; j++) {
       const i = Math.floor(Math.random() * (tokens.length - 16)) + 16;
-      const ea = tokens.slice(i - 128, i - Math.floor(Math.random() * 16) - 1);
+      const ea = tokens.slice(i - 16, i - Math.floor(Math.random() * 16) - 1);
       for (let k = 0; k < ea.length; k++) {
         const ec = (ea[k] = ea[k].slice());
         ec[ec.length] = 2;
