@@ -36,9 +36,9 @@ tf.registerGradient({
 const depth = num2char.length;
 const maxLen = 8;
 const models = useNodeExtendedTransformer({
-  dModel: 32,
-  dFF: 64,
-  pDropout: 0.1,
+  dModel: 16,
+  dFF: 32,
+  pDropout: 0.2,
   h: 4,
   maxLen,
   depthEncoder: depth,
@@ -47,7 +47,7 @@ const models = useNodeExtendedTransformer({
   layers: 4,
 });
 models.trainer.summary();
-const batchSize = 32;
+const batchSize = 16;
 const loader = function* () {
   const zeros = Array(maxLen).fill(0);
   while (true) {
@@ -142,9 +142,14 @@ const loader = function* () {
 const train = async () => {
   await models.trainer.fitDataset(tf.data.generator(loader), {
     batchesPerEpoch: 32,
-    epochs: 256,
+    epochs: 512,
+    callbacks:{
+      async onEpochEnd(){
+        save(await weights2ArrayBuffer(models.trainer))
+      }
+    }
   });
-  save(weights2ArrayBuffer(models.trainer));
+  save(await weights2ArrayBuffer(models.trainer));
 };
 
 const load = async (data) => {
@@ -155,10 +160,11 @@ const load = async (data) => {
     }
   }
 };
+let saveOffset = 0
 const save = (buffer) => {
   const path =
-    "./assets/ai/daidoumei/weights-" +
-    Math.random().toString(36).slice(2) +
+    "./weights/weights-" +
+    saveOffset++ +
     ".bin";
   console.log(path);
   fs.writeFile(path, Buffer.from(buffer), (err) => {

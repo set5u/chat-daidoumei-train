@@ -196,8 +196,20 @@ export default ({
       decoderEmbedding,
       decoderConstantPositionalEncoding.apply(decoderEmbedding),
     ]);
-  let lastDecoderOutput = decoderPositionalEncoding;
-  let lastDecoderStandaloneOutput = decoderPositionalEncoding;
+    const decoderReshape0 = tf.layers
+    .reshape({ targetShape: [null, maxLen * dModel] })
+    .apply(decoderPositionalEncoding);
+  const decoderRNN = tf.layers
+    .rnn({
+      cell: new RNNMultiHeadAttentionCell(h, dModel / h, maxLen),
+      returnSequences: true,
+    })
+    .apply(decoderReshape0);
+  const decoderReshape1 = tf.layers
+    .reshape({ targetShape: [null, maxLen, dModel] })
+    .apply(decoderRNN);
+  let lastDecoderOutput = decoderReshape1;
+  let lastDecoderStandaloneOutput = decoderReshape1;
   for (let i = 0; i < layers; i++) {
     const decoderMaskedMultiHeadAttentionConcatterLayer =
       new MultiHeadAttentionConcatter();
@@ -340,25 +352,14 @@ export default ({
     lastDecoderOutput = decoderNorm2;
     lastDecoderStandaloneOutput = decoderStandaloneNorm2;
   }
-  const decoderReshape0 = tf.layers
-    .reshape({ targetShape: [null, maxLen * dModel] })
-    .apply(lastDecoderOutput);
-  const decoderRNN = tf.layers
-    .rnn({
-      cell: new RNNMultiHeadAttentionCell(h, dModel / h, maxLen),
-      returnSequences: true,
-    })
-    .apply(decoderReshape0);
-  const decoderReshape1 = tf.layers
-    .reshape({ targetShape: [null, maxLen, dModel] })
-    .apply(decoderRNN);
   const decoderDenseLayer = tf.layers.timeDistributed({
     layer: tf.layers.dense({
       units: depthTarget,
       activation: "softmax",
     }),
   });
-  const decoderDense = decoderDenseLayer.apply(decoderReshape1);
+  const decoderDense = decoderDenseLayer.apply(lastDecoderOutput);
+  const decoderStandaloneDense = decoderDenseLayer.apply(lastDecoderStandaloneOutput)
   const trainer = tf.model({
     inputs: [encoderInput, decoderInput],
     outputs: decoderDense,
@@ -375,7 +376,7 @@ export default ({
   });
   const decoder = tf.model({
     inputs: [decoderStandaloneInput, decoderInput],
-    outputs: lastDecoderStandaloneOutput,
+    outputs: decoderStandaloneDense,
   });
-  return { trainer, encoder, decoder, encoderRNN, decoderRNN };
+  return { trainer, encoder, decoder, encoderRNN, decoderRNN, decoderEmbedding };
 };

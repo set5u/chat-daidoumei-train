@@ -14,7 +14,7 @@ export class NodePositionalEncoding extends tf.layers.Layer {
   }
 }
 NodePositionalEncoding.className = "PositionalEncoding";
-const positionalEncoding = (length, depth) => {
+export const positionalEncoding = (length, depth) => {
   const ret = Array(length);
   for (let i = 0; i < length; i++) {
     const r = [];
