@@ -34,7 +34,7 @@ tf.registerGradient({
   },
 });
 const depth = num2char.length;
-const maxLen = 16;
+const maxLen = 8;
 const models = useNodeExtendedTransformer({
   dModel: 16,
   dFF: 32,
@@ -44,7 +44,7 @@ const models = useNodeExtendedTransformer({
   depthEncoder: depth,
   depthDecoder: depth,
   depthTarget: depth,
-  layers: 4,
+  layers: 3,
 });
 models.trainer.summary();
 const batchSize = 16;
@@ -143,9 +143,9 @@ const train = async () => {
   await models.trainer.fitDataset(tf.data.generator(loader), {
     batchesPerEpoch: 32,
     epochs: 256,
-    callbacks: tf.node.tensorBoard("./log", {
-      updateFreq: "batch",
-    }),
+    validationData: tf.data.generator(loader),
+    validationBatchSize: 32,
+    validationBatches: 1,
   });
   save(weights2ArrayBuffer(models.trainer));
 };
