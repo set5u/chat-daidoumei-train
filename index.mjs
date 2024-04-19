@@ -36,8 +36,8 @@ tf.registerGradient({
 const depth = num2char.length;
 const maxLen = 8;
 const models = useNodeExtendedTransformer({
-  dModel: 16,
-  dFF: 32,
+  dModel: 32,
+  dFF: 64,
   pDropout: 0.1,
   h: 4,
   maxLen,
@@ -47,7 +47,7 @@ const models = useNodeExtendedTransformer({
   layers: 4,
 });
 models.trainer.summary();
-const batchSize = 16;
+const batchSize = 32;
 const loader = function* () {
   const zeros = Array(maxLen).fill(0);
   while (true) {

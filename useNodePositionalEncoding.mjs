@@ -1,7 +1,7 @@
 import * as tf from "@tensorflow/tfjs-node-gpu";
 export class NodePositionalEncoding extends tf.layers.Layer {
   constructor(length, depth) {
-    super();
+    super({trainable: false});
     this.length = length;
     this.depth = depth;
   }
