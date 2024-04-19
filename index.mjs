@@ -44,7 +44,7 @@ const models = useNodeExtendedTransformer({
   depthEncoder: depth,
   depthDecoder: depth,
   depthTarget: depth,
-  layers: 3,
+  layers: 4,
 });
 models.trainer.summary();
 const batchSize = 16;
@@ -143,9 +143,6 @@ const train = async () => {
   await models.trainer.fitDataset(tf.data.generator(loader), {
     batchesPerEpoch: 32,
     epochs: 256,
-    validationData: tf.data.generator(loader),
-    validationBatchSize: 32,
-    validationBatches: 1,
   });
   save(weights2ArrayBuffer(models.trainer));
 };
