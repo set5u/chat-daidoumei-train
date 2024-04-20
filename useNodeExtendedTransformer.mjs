@@ -52,11 +52,9 @@ class RNNMultiHeadAttention extends tf.layers.RNN {
   }
   getInitialState(inputs) {
     return tf.tidy(() => [
-      positionalEncoding(this.length, this.depth).reshape([
-        -1,
-        inputs.shape[0],
-        inputs.shape[2],
-      ]),
+      positionalEncoding(this.length, this.depth)
+        .reshape([-1, 1, inputs.shape[2]])
+        .tile([1, inputs.shape[0], 1]),
     ]);
   }
 }
