@@ -6,13 +6,14 @@ import num2char from "./num2char.json"; // with { type: "json" };
 import char2num from "./char2num.json"; // with { type: "json" };
 import useNodeExtendedTransformer from "./useNodeExtendedTransformer.mjs";
 import { arrayBuffer2Weights } from "./initTensorflow.mjs";
+import { positionalEncoding } from "./useNodePositionalEncoding.mjs";
 
 const depth = num2char.length;
 const maxLen = 8;
 const models = useNodeExtendedTransformer({
   dModel: 16,
   dFF: 32,
-  pDropout: 0.2,
+  pDropout: 0,
   h: 4,
   maxLen,
   depthEncoder: depth,
@@ -56,14 +57,51 @@ const predict = async () => {
       .reshape([encoderInput.length / maxLen, maxLen])
       .arraySync();
   });
-  const output = [];
+
   if (e.length < 2) {
     e.push(zeros);
   }
-  models.encoder.predict(tf.tensor([e]), { batchSize: 1 }).print();
-
-  for (let i = 0; i < 16; i++) {
-    tf.tidy(() => {});
+  const encoderOutput = tf.tidy(() => {
+    return models.encoder.apply(tf.tensor([e]), { training: true });
+  });
+  const encoderRNNOutput = tf.tidy(() => {
+    return models.encoderRNNLayer
+      .apply(encoderOutput.reshape([1, -1, maxLen * 16]))
+      .reshape([maxLen, 16]);
+  });
+  encoderOutput.dispose();
+  const output = [1];
+  for (let i = 0; i < 1; i++) {
+    tf.tidy(() => {
+      const decoderInputArray = Array(
+        Math.floor(output.length / maxLen) * maxLen + maxLen
+      ).fill(0);
+      decoderInputArray[0] = 1;
+      output.forEach((v, i) => (decoderInputArray[i + 1] = v));
+      const decoderInput = tf
+        .tensor(decoderInputArray)
+        .reshape([1, -1, maxLen]);
+      const embeddingOut = models.decoderEmbeddingLayer.apply(
+        decoderInput.reshape([1, -1, maxLen])
+      );
+      const rnnOut = models.decoderRNNLayer
+        .apply(
+          embeddingOut
+            .add(positionalEncoding(maxLen, 16).expandDims(0))
+            .reshape([1, -1, maxLen * 16])
+        )
+        .reshape([1, -1, maxLen, 16]);
+      const decoderOut = models.decoder.apply(
+        [
+          rnnOut,
+          tf.maximum(decoderInput.onesLike(), decoderInput),
+          encoderRNNOutput,
+        ],
+        { training: true }
+      );
+      // .argMax(2);
+      return decoderOut;
+    }).print();
   }
 };
 fs.readFile("./weights/weights-106.bin", null, (err, data) => {

@@ -158,9 +158,10 @@ export default ({
   const encoderReshape0 = tf.layers
     .reshape({ targetShape: [null, maxLen * dModel] })
     .apply(lastEncoderOutput);
-  const encoderRNN = tf.layers
-    .rnn({ cell: new RNNMultiHeadAttentionCell(h, dModel / h, maxLen) })
-    .apply(encoderReshape0);
+  const encoderRNNLayer = tf.layers.rnn({
+    cell: new RNNMultiHeadAttentionCell(h, dModel / h, maxLen),
+  });
+  const encoderRNN = encoderRNNLayer.apply(encoderReshape0);
   const encoderReshape1 = tf.layers
     .reshape({ targetShape: [maxLen, dModel] })
     .apply(encoderRNN);
@@ -169,7 +170,7 @@ export default ({
   });
   const decoderInput = tf.input({ shape: [null, maxLen] });
   const decoderStandaloneInput = tf.input({ shape: [maxLen, dModel] });
-  const decoderStandaloneEmbeddingInput = tf.input({
+  const decoderStandaloneRNNInput = tf.input({
     shape: [null, maxLen, dModel],
   });
   const decoderStandaloneMaskInput = tf.input({
@@ -186,15 +187,14 @@ export default ({
   const decoderAttentionMask = tf.layers
     .maximum()
     .apply([decoderInput, decoderOnes]);
-  const decoderEmbedding = tf.layers
-    .timeDistributed({
-      layer: tf.layers.embedding({
-        inputDim: depthDecoder,
-        outputDim: dModel,
-        maskZero: true,
-      }),
-    })
-    .apply(decoderInput);
+  const decoderEmbeddingLayer = tf.layers.timeDistributed({
+    layer: tf.layers.embedding({
+      inputDim: depthDecoder,
+      outputDim: dModel,
+      maskZero: true,
+    }),
+  });
+  const decoderEmbedding = decoderEmbeddingLayer.apply(decoderInput);
   const decoderPositionalEncoding = tf.layers
     .add()
     .apply([
@@ -204,17 +204,16 @@ export default ({
   const decoderReshape0 = tf.layers
     .reshape({ targetShape: [null, maxLen * dModel] })
     .apply(decoderPositionalEncoding);
-  const decoderRNN = tf.layers
-    .rnn({
-      cell: new RNNMultiHeadAttentionCell(h, dModel / h, maxLen),
-      returnSequences: true,
-    })
-    .apply(decoderReshape0);
+  const decoderRNNLayer = tf.layers.rnn({
+    cell: new RNNMultiHeadAttentionCell(h, dModel / h, maxLen),
+    returnSequences: true,
+  });
+  const decoderRNN = decoderRNNLayer.apply(decoderReshape0);
   const decoderReshape1 = tf.layers
     .reshape({ targetShape: [null, maxLen, dModel] })
     .apply(decoderRNN);
   let lastDecoderOutput = decoderReshape1;
-  let lastDecoderStandaloneOutput = decoderStandaloneEmbeddingInput;
+  let lastDecoderStandaloneOutput = decoderStandaloneRNNInput;
   for (let i = 0; i < layers; i++) {
     const decoderMaskedMultiHeadAttentionConcatterLayer =
       new MultiHeadAttentionConcatter();
@@ -383,9 +382,9 @@ export default ({
   });
   const decoder = tf.model({
     inputs: [
-      decoderStandaloneInput,
+      decoderStandaloneRNNInput,
       decoderStandaloneMaskInput,
-      decoderStandaloneEmbeddingInput,
+      decoderStandaloneInput,
     ],
     outputs: decoderStandaloneDense,
   });
@@ -393,8 +392,8 @@ export default ({
     trainer,
     encoder,
     decoder,
-    encoderRNN,
-    decoderRNN,
-    decoderEmbedding,
+    encoderRNNLayer,
+    decoderRNNLayer,
+    decoderEmbeddingLayer,
   };
 };
