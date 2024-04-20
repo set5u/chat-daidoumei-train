@@ -170,6 +170,12 @@ export default ({
   });
   const decoderInput = tf.input({ shape: [null, maxLen] });
   const decoderStandaloneInput = tf.input({ shape: [maxLen, dModel] });
+  const decoderStandaloneEmbeddingInput = tf.input({
+    shape: [null, maxLen, dModel],
+  });
+  const decoderStandaloneMaskInput = tf.input({
+    shape: [null, maxLen],
+  });
   const decoderOnes = tf.layers
     .dense({
       units: maxLen,
@@ -196,7 +202,7 @@ export default ({
       decoderEmbedding,
       decoderConstantPositionalEncoding.apply(decoderEmbedding),
     ]);
-    const decoderReshape0 = tf.layers
+  const decoderReshape0 = tf.layers
     .reshape({ targetShape: [null, maxLen * dModel] })
     .apply(decoderPositionalEncoding);
   const decoderRNN = tf.layers
@@ -209,7 +215,7 @@ export default ({
     .reshape({ targetShape: [null, maxLen, dModel] })
     .apply(decoderRNN);
   let lastDecoderOutput = decoderReshape1;
-  let lastDecoderStandaloneOutput = decoderReshape1;
+  let lastDecoderStandaloneOutput = decoderStandaloneEmbeddingInput;
   for (let i = 0; i < layers; i++) {
     const decoderMaskedMultiHeadAttentionConcatterLayer =
       new MultiHeadAttentionConcatter();
@@ -280,7 +286,7 @@ export default ({
       decoderMultiHeadAttentionConcatterLayer.apply([
         decoderStandaloneNorm0,
         decoderStandaloneInput,
-        decoderAttentionMask,
+        decoderStandaloneMaskInput,
       ]);
     const decoderMultiHeadAttentionLayer = tf.layers.timeDistributed({
       layer: new NodeMultiHeadAttention({
@@ -359,7 +365,9 @@ export default ({
     }),
   });
   const decoderDense = decoderDenseLayer.apply(lastDecoderOutput);
-  const decoderStandaloneDense = decoderDenseLayer.apply(lastDecoderStandaloneOutput)
+  const decoderStandaloneDense = decoderDenseLayer.apply(
+    lastDecoderStandaloneOutput
+  );
   const trainer = tf.model({
     inputs: [encoderInput, decoderInput],
     outputs: decoderDense,
@@ -375,8 +383,19 @@ export default ({
     outputs: lastEncoderOutput,
   });
   const decoder = tf.model({
-    inputs: [decoderStandaloneInput, decoderInput],
+    inputs: [
+      decoderStandaloneInput,
+      decoderStandaloneMaskInput,
+      decoderStandaloneEmbeddingInput,
+    ],
     outputs: decoderStandaloneDense,
   });
-  return { trainer, encoder, decoder, encoderRNN, decoderRNN, decoderEmbedding };
+  return {
+    trainer,
+    encoder,
+    decoder,
+    encoderRNN,
+    decoderRNN,
+    decoderEmbedding,
+  };
 };

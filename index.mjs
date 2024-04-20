@@ -160,7 +160,7 @@ const load = async (data) => {
     }
   }
 };
-let saveOffset = 0
+let saveOffset = 85
 const save = (buffer) => {
   const path =
     "./weights/weights-" +
@@ -171,5 +171,8 @@ const save = (buffer) => {
     err && console.error(err);
   });
 };
-
-train();
+fs.readFile("./weights/weights-84.bin", null, (err, data)=>{
+  err && console.error(err)
+  load(data.buffer)
+  train();
+})
