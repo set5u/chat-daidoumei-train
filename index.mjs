@@ -5,8 +5,8 @@ import fs from "fs";
 Important note: Copy napi-v9/tensorflow.dll into napi-v8/tensorflow.dll
 
 */
-import num2char from "./num2char.json" with { type: "json" };
-import tokens from "./tokens.json" with { type: "json" };
+import num2char from "./num2char.json"; // with { type: "json" };
+import tokens from "./tokens.json"; // with { type: "json" };
 import useNodeExtendedTransformer from "./useNodeExtendedTransformer.mjs";
 import { weights2ArrayBuffer, arrayBuffer2Weights } from "./initTensorflow.mjs";
 
@@ -143,11 +143,11 @@ const train = async () => {
   await models.trainer.fitDataset(tf.data.generator(loader), {
     batchesPerEpoch: 32,
     epochs: 512,
-    callbacks:{
-      async onEpochEnd(){
-        save(await weights2ArrayBuffer(models.trainer))
-      }
-    }
+    callbacks: {
+      async onEpochEnd() {
+        save(await weights2ArrayBuffer(models.trainer));
+      },
+    },
   });
   save(await weights2ArrayBuffer(models.trainer));
 };
@@ -160,19 +160,16 @@ const load = async (data) => {
     }
   }
 };
-let saveOffset = 85
+let saveOffset = 108;
 const save = (buffer) => {
-  const path =
-    "./weights/weights-" +
-    saveOffset++ +
-    ".bin";
+  const path = "./weights/weights-" + saveOffset++ + ".bin";
   console.log(path);
   fs.writeFile(path, Buffer.from(buffer), (err) => {
     err && console.error(err);
   });
 };
-fs.readFile("./weights/weights-84.bin", null, (err, data)=>{
-  err && console.error(err)
-  load(data.buffer)
+fs.readFile("./weights/weights-107.bin", null, (err, data) => {
+  err && console.error(err);
+  load(data.buffer);
   train();
-})
+});

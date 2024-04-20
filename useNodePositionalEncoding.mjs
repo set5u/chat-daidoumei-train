@@ -1,15 +1,34 @@
 import * as tf from "@tensorflow/tfjs-node-gpu";
+import { Initializer } from "@tensorflow/tfjs-layers/dist/initializers";
+class PositionalEncodingInitializer extends Initializer {
+  constructor() {
+    super();
+  }
+  apply(shape) {
+    return positionalEncoding(shape[0], shape[1]);
+  }
+}
+
 export class NodePositionalEncoding extends tf.layers.Layer {
+  weight;
   constructor(length, depth) {
-    super({trainable: false});
+    super({ trainable: false });
     this.length = length;
     this.depth = depth;
   }
+  build() {
+    this.weight = this.addWeight(
+      "PositionalEncoding",
+      [this.length, this.depth],
+      "float32",
+      new PositionalEncodingInitializer(),
+      undefined,
+      false
+    );
+  }
   call(input) {
     return tf.tidy(() =>
-      positionalEncoding(this.length, this.depth)
-        .expandDims(0)
-        .tile([input.shape[0], 1, 1])
+      this.weight.read().expandDims(0).tile([input.shape[0], 1, 1])
     );
   }
 }

@@ -5,7 +5,7 @@ import terser from "@rollup/plugin-terser";
 import babel from "@rollup/plugin-babel";
 
 export default {
-  input: "index.mjs",
+  input: ["index.mjs", "predict.mjs"],
   output: {
     dir: "dist",
     format: "cjs",
@@ -30,6 +30,6 @@ export default {
       ],
       babelHelpers: "runtime",
     }),
-    terser(),
+    // terser(),
   ],
 };

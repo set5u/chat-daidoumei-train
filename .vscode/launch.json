@@ -7,9 +7,9 @@
     {
       "type": "node",
       "request": "launch",
-      "name": "debug",
+      "name": "predict",
       "skipFiles": ["<node_internals>/**"],
-      "program": "${workspaceFolder}\\index.mjs"
+      "program": "${workspaceFolder}/dist/predict.js"
     }
   ]
 }

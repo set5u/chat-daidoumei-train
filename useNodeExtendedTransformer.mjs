@@ -74,9 +74,6 @@ export default ({
   depthTarget,
   layers,
 }) => {
-  const encoderConstantPositionalEncoding = tf.layers.timeDistributed({
-    layer: new NodePositionalEncoding(maxLen, dModel),
-  });
   const encoderInput = tf.input({ shape: [null, maxLen] });
   const encoderOnes = tf.layers
     .dense({
@@ -98,12 +95,14 @@ export default ({
       }),
     })
     .apply(encoderInput);
+  const encoderConstantPositionalEncoding = tf.layers
+    .timeDistributed({
+      layer: new NodePositionalEncoding(maxLen, dModel),
+    })
+    .apply(encoderEmbedding);
   const encoderPositionalEncoding = tf.layers
     .add()
-    .apply([
-      encoderEmbedding,
-      encoderConstantPositionalEncoding.apply(encoderEmbedding),
-    ]);
+    .apply([encoderEmbedding, encoderConstantPositionalEncoding]);
   let lastEncoderOutput = encoderPositionalEncoding;
   for (let i = 0; i < layers; i++) {
     const encoderMultiHeadAttentionConcatter =
