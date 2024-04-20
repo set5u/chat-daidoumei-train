@@ -16,9 +16,7 @@ class CustomizedMultiHeadAttention extends MultiHeadAttention {
     this._outputDense.build([
       shape[0][0],
       shape[0][1],
-      // @ts-ignore
       this.numHeads,
-      // @ts-ignore
       shape[0][2] / this.numHeads,
     ]);
     this.built = true;

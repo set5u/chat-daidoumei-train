@@ -160,7 +160,7 @@ const load = async (data) => {
     }
   }
 };
-let saveOffset = 108;
+let saveOffset = 1;
 const save = (buffer) => {
   const path = "./weights/weights-" + saveOffset++ + ".bin";
   console.log(path);
