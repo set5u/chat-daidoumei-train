@@ -30,6 +30,6 @@ export default {
       ],
       babelHelpers: "runtime",
     }),
-    // terser(),
+    terser(),
   ],
 };

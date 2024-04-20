@@ -168,8 +168,8 @@ const save = (buffer) => {
     err && console.error(err);
   });
 };
-fs.readFile("./weights/weights-107.bin", null, (err, data) => {
-  err && console.error(err);
-  load(data.buffer);
-  train();
-});
+// fs.readFile("./weights/weights-107.bin", null, (err, data) => {
+//   err && console.error(err);
+//   load(data.buffer);
+train();
+// });
