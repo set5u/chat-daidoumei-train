@@ -10,6 +10,8 @@ import tokens from "./tokens.json"; // with { type: "json" };
 import useNodeExtendedTransformer from "./useNodeExtendedTransformer.mjs";
 import { weights2ArrayBuffer, arrayBuffer2Weights } from "./initTensorflow.mjs";
 
+tf.setBackend("cpu");
+
 tf.registerGradient({
   kernelName: tf.Einsum,
   inputsToSave: ["0", "1"],
@@ -36,9 +38,9 @@ tf.registerGradient({
 const depth = num2char.length;
 const maxLen = 8;
 const models = useNodeExtendedTransformer({
-  dModel: 16,
-  dFF: 32,
-  pDropout: 0.2,
+  dModel: 128,
+  dFF: 256,
+  pDropout: 0.1,
   h: 4,
   maxLen,
   depthEncoder: depth,

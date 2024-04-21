@@ -31,7 +31,7 @@ const load = async (data) => {
   }
 };
 const print = (t) => {
-  t.print();
+  // t.print();
   return t;
 };
 
@@ -68,17 +68,17 @@ const predict = async () => {
   const test = tf
     .model({ inputs: models.a, outputs: models.b })
     .apply(tf.tensor([e]), { training: true });
-  test.print();
+  // test.print();
   const encoderOutput = tf.tidy(() => {
     return models.encoder.apply(tf.tensor([e]), { training: true });
   });
-  encoderOutput.print();
+  // encoderOutput.print();
   const encoderRNNOutput = tf.tidy(() => {
     return models.encoderRNNLayer
       .apply(encoderOutput.reshape([1, -1, maxLen * 16]))
       .reshape([maxLen, 16]);
   });
-  encoderRNNOutput.print();
+  // encoderRNNOutput.print();
   encoderOutput.dispose();
   const output = [1];
   for (let i = 0; i < 1; i++) {
@@ -114,19 +114,19 @@ const predict = async () => {
     }).print();
   }
 };
-// fs.readFile("./weights/weights-106.bin", null, (err, data) => {
-//   err && console.error(err);
-// load(data.buffer);
-// const weights = models.trainer.getWeights();
-// for (const layer of models.trainer.layers) {
-//   if (layer.trainable && layer.trainableWeights.length) {
-//     console.log(layer.name, ":::");
-//     console.log(
-//       weights
-//         .splice(0, layer.trainableWeights.length)
-//         .map((v) => v.toString())
-//     );
-//   }
-// }
-predict();
-// });
+fs.readFile("./weights/weights-184.bin", null, (err, data) => {
+  err && console.error(err);
+  load(data.buffer);
+  // const weights = models.trainer.getWeights();
+  // for (const layer of models.trainer.layers) {
+  //   if (layer.trainable && layer.trainableWeights.length) {
+  //     console.log(layer.name, ":::");
+  //     console.log(
+  //       weights
+  //         .splice(0, layer.trainableWeights.length)
+  //         .map((v) => v.toString())
+  //     );
+  //   }
+  // }
+  predict();
+});
