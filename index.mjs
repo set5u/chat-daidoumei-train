@@ -10,8 +10,6 @@ import tokens from "./tokens.json"; // with { type: "json" };
 import useNodeExtendedTransformer from "./useNodeExtendedTransformer.mjs";
 import { weights2ArrayBuffer, arrayBuffer2Weights } from "./initTensorflow.mjs";
 
-tf.setBackend("cpu");
-
 tf.registerGradient({
   kernelName: tf.Einsum,
   inputsToSave: ["0", "1"],

@@ -1,0 +1,101 @@
+[
+    {
+        "label": "json",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "json",
+        "description": "json",
+        "detail": "json",
+        "documentation": {}
+    },
+    {
+        "label": "tensorflow",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "tensorflow",
+        "description": "tensorflow",
+        "detail": "tensorflow",
+        "documentation": {}
+    },
+    {
+        "label": "numpy",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "numpy",
+        "description": "numpy",
+        "detail": "numpy",
+        "documentation": {}
+    },
+    {
+        "label": "math",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "math",
+        "description": "math",
+        "detail": "math",
+        "documentation": {}
+    },
+    {
+        "label": "PositionalEncoding",
+        "kind": 6,
+        "importPath": "train",
+        "description": "train",
+        "peekOfCode": "class PositionalEncoding(tf.keras.layers.Layer):\n  def __init__(self,length, depth):\n    super().__init__(trainable=False)\n    self.length = length\n    self.depth = depth\n  def call(self,input):\n    return positionalEncoding(self.length, self.depth)\\\n        .expandDims(0)\\\n        .tile([input.shape[0], 1, 1])\ndef positionalEncoding(length, depth):",
+        "detail": "train",
+        "documentation": {}
+    },
+    {
+        "label": "RNNMultiHeadAttentionCell",
+        "kind": 6,
+        "importPath": "train",
+        "description": "train",
+        "peekOfCode": "class RNNMultiHeadAttentionCell(tf.keras.layers.SimpleRNNCell):\n  def __init__(self,numHeads, keyDim, maxLen):\n    super().__init__()\n    self.maxLen = maxLen\n    self.stateSize = keyDim * numHeads * maxLen\n    self.attention = tf.keras.layers.MultiHeadAttention(numHeads, keyDim)\n  def call(self,inputs, **kwargs):\n    super().call(inputs, **kwargs)\n    batchSize = inputs[0].shape[0]\n    ret = \\",
+        "detail": "train",
+        "documentation": {}
+    },
+    {
+        "label": "RNNMultiHeadAttention",
+        "kind": 6,
+        "importPath": "train",
+        "description": "train",
+        "peekOfCode": "class RNNMultiHeadAttention(tf.keras.layers.RNN):\n  def __init__(self,*args,**kwargs):\n    super().__init__(*args,**kwargs)\n    self.length = args.length\n    self.depth = args.depth\n  def get_initial_state(self,inputs):\n    return [\n      positionalEncoding(self.length, self.depth)\n        .reshape([-1, 1, inputs.shape[2]])\n        .tile([1, inputs.shape[0], 1]),",
+        "detail": "train",
+        "documentation": {}
+    },
+    {
+        "label": "MultiHeadAttentionConcatter",
+        "kind": 6,
+        "importPath": "train",
+        "description": "train",
+        "peekOfCode": "class MultiHeadAttentionConcatter(tf.keras.layers.Layer):\n  def call(self, inputs):\n      query = inputs[0]\n      kv = inputs[1]\n      mask = inputs[2] if inputs.length == 3 else None\n      dModel = query.shape[query.shape.length - 1]\n      query =\\\n        query.reshape(query.shape[0:2]+ [1]+query.shape[2:]) if query is not None else query\n      if kv.size != query.size:\n        kv = kv.expandDims(1).tile([1, query.shape[1], 1, 1])",
+        "detail": "train",
+        "documentation": {}
+    },
+    {
+        "label": "save",
+        "kind": 2,
+        "importPath": "train",
+        "description": "train",
+        "peekOfCode": "def save(model):\n    weights = model.get_weights(True)\n    ret = []\n    for weight in weights:\n        ret.append(json.dumps(weight.cast(\"float64\")))\n    return \"\\n\".join(ret)\ndef load(weights:str):\n    weights = weights.split(\"\\n\")\n    ret = []\n    for weight in weights:",
+        "detail": "train",
+        "documentation": {}
+    },
+    {
+        "label": "load",
+        "kind": 2,
+        "importPath": "train",
+        "description": "train",
+        "peekOfCode": "def load(weights:str):\n    weights = weights.split(\"\\n\")\n    ret = []\n    for weight in weights:\n        ret.append(np.array(json.loads(weight),\"float32\"))\n    return ret\nclass PositionalEncoding(tf.keras.layers.Layer):\n  def __init__(self,length, depth):\n    super().__init__(trainable=False)\n    self.length = length",
+        "detail": "train",
+        "documentation": {}
+    },
+    {
+        "label": "positionalEncoding",
+        "kind": 2,
+        "importPath": "train",
+        "description": "train",
+        "peekOfCode": "def positionalEncoding(length, depth):\n  ret = []\n  for i in range(length):\n    r = []\n    ret[i] = r\n    for j in range(depth):\n      r[j] =\\\n           math.sin(i / 10000 ** (j / depth)) if j % 2 else\\\n           math.cos(i / 10000 ** (j / depth))\n  return tf.tensor(ret)",
+        "detail": "train",
+        "documentation": {}
+    }
+]
