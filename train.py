@@ -570,7 +570,7 @@ def loader():
         )
 
 
-epochOffset = 0
+epochOffset = 113
 
 
 class Callback(tf.keras.callbacks.Callback):
@@ -585,11 +585,18 @@ def train():
         tf.data.Dataset.from_generator(
             loader, output_types=(("float32", "float32"), "float32")
         ),
-        epochs=512,
+        epochs=128,
         steps_per_epoch=32,
+        validation_data=tf.data.Dataset.from_generator(
+            loader, output_types=(("float32", "float32"), "float32")
+        ),
+        validation_steps=4,
         callbacks=[Callback()],
     )
     pd.DataFrame(history.history)[["loss", "val_loss"]].plot()
 
 
+with open("./weights/weight-113.json") as f:
+    weights = load("".join(f.readlines()))
+models["trainer"].set_weights(weights)
 train()
