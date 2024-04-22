@@ -488,10 +488,11 @@ with open("./tokens.json") as f:
     tokens = json.loads("".join(f.readlines()))
 depth = len(num2char)
 maxLen = 8
+toTrain = True
 models = useExtendedTransformer(
     32,
     64,
-    0.2,
+    0.2 if toTrain else 0.0,
     4,
     maxLen,
     depth,
@@ -596,7 +597,14 @@ def train():
     pd.DataFrame(history.history)[["loss", "val_loss"]].show()
 
 
+def predict():
+    pass
+
+
 with open("./weights/weight-128.json") as f:
     weights = load("".join(f.readlines()))
 models["trainer"].set_weights(weights)
-train()
+if toTrain:
+    train()
+else:
+    predict()
