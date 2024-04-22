@@ -21,13 +21,13 @@ tf.registerGradient({
       0: () =>
         tf.einsum(
           `${splittedEquation1[1]},${splittedEquation1[0]}->${splittedEquation0[0]}`,
-          tf.onesLike(dy),
+          dy,
           saved[1]
         ),
       1: () =>
         tf.einsum(
           `${splittedEquation1[1]},${splittedEquation0[0]}->${splittedEquation1[0]}`,
-          tf.onesLike(dy),
+          dy,
           saved[0]
         ),
     };
