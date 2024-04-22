@@ -453,7 +453,7 @@ def useExtendedTransformer(
         inputs=(encoderInput, decoderInput),
         outputs=decoderDense,
     )
-    optimizer = tf.keras.optimizers.Adagrad()
+    optimizer = tf.keras.optimizers.Adadelta()
     trainer.compile(
         optimizer,
         loss="sparse_categorical_crossentropy",
@@ -570,7 +570,7 @@ def loader():
         )
 
 
-epochOffset = 113
+epochOffset = 128
 
 
 class Callback(tf.keras.callbacks.Callback):
@@ -593,10 +593,10 @@ def train():
         validation_steps=4,
         callbacks=[Callback()],
     )
-    pd.DataFrame(history.history)[["loss", "val_loss"]].plot()
+    pd.DataFrame(history.history)[["loss", "val_loss"]].show()
 
 
-with open("./weights/weight-113.json") as f:
+with open("./weights/weight-128.json") as f:
     weights = load("".join(f.readlines()))
 models["trainer"].set_weights(weights)
 train()
