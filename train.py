@@ -32,13 +32,10 @@ class PositionalEncoding(tf.keras.Model):
         self.depth = depth
 
     def call(self, input):
-        return (
-            input
-            if tf.is_symbolic_tensor(input)
-            else tf.tile(
-                positionalEncoding(self.length, self.depth)[np.newaxis, :, :],
-                (batchSize, 1, 1),
-            )
+        batchSize = input.shape[0]
+        return tf.tile(
+            positionalEncoding(self.length, self.depth)[np.newaxis, :, :],
+            (batchSize, 1, 1),
         )
 
     def compute_output_shape(self, inputShape):
@@ -114,15 +111,30 @@ class RNNMultiHeadAttentionCell(tf.keras.Model):
         self.attention = CustomizedMultiHeadAttention(
             use_causal_mask=use_causal_mask, num_heads=numHeads, key_dim=keyDim
         )
+        self.add0 = tf.keras.layers.Add()
+        self.norm0 = tf.keras.layers.LayerNormalization()
+        self.dense0 = tf.keras.layers.Dense(units=self.state_size, activation="tanh")
+        self.dense1 = tf.keras.layers.Dense(units=self.state_size, activation="linear")
+        self.add1 = tf.keras.layers.Add()
+        self.norm1 = tf.keras.layers.LayerNormalization()
 
     def call(self, *inputs):
+        batchSize = inputs[0].shape[0]
+        value = tf.reshape(inputs[1], [batchSize, self.maxLen, -1])
         ret = tf.reshape(
             self.attention.call(
                 tf.reshape(inputs[0], [batchSize, self.maxLen, -1]),
-                value=tf.reshape(inputs[1], [batchSize, self.maxLen, -1]),
+                value=value,
             ),
             [batchSize, -1],
         )
+        ret = self.add0([inputs[0], tf.reshape(value, (batchSize, -1)), ret])
+        ret = self.norm0(ret)
+        attnOut = ret
+        ret = self.dense0(ret)
+        ret = self.dense1(ret)
+        ret = self.add1([attnOut, ret])
+        ret = self.norm1(ret)
         return [ret, ret]
 
     def build(self, inputShape):
@@ -133,6 +145,20 @@ class RNNMultiHeadAttentionCell(tf.keras.Model):
                 [inputShape[0], self.maxLen, inputShape[1] // self.maxLen],
             ]
         )
+        self.dense0.build([inputShape[0], self.state_size])
+        self.dense1.build([inputShape[0], self.state_size])
+        self.add0.build(
+            [
+                [inputShape[0], self.state_size],
+                [inputShape[0], self.state_size],
+                [inputShape[0], self.state_size],
+            ]
+        )
+        self.norm0.build([inputShape[0], self.state_size])
+        self.add1.build(
+            [[inputShape[0], self.state_size], [inputShape[0], self.state_size]]
+        )
+        self.norm1.build([inputShape[0], self.state_size])
 
     def computeOutputShape(self, inputShape):
         return inputShape
@@ -164,7 +190,9 @@ class MultiHeadAttentionConcatter(tf.keras.Model):
         mask = inputs[2] if len(inputs) == 3 else None
         dModel = query.shape[len(query.shape) - 1]
         query = (
-            tf.reshape(query, (batchSize,) + query.shape[1:2] + (1,) + query.shape[2:])
+            tf.reshape(
+                query, (query.shape[0],) + query.shape[1:2] + (1,) + query.shape[2:]
+            )
             if query is not None
             else query
         )
@@ -367,7 +395,6 @@ def useExtendedTransformer(
             encoderReshape1,
             decoderAttentionMask,
         )
-
         decoderStandaloneMultiHeadAttentionConcatter = (
             decoderMultiHeadAttentionConcatterLayer(
                 decoderStandaloneNorm0,
@@ -484,6 +511,8 @@ def useExtendedTransformer(
 
 with open("./num2char.json") as f:
     num2char = json.loads("".join(f.readlines()))
+with open("./char2num.json") as f:
+    char2num = json.loads("".join(f.readlines()))
 with open("./tokens.json") as f:
     tokens = json.loads("".join(f.readlines()))
 depth = len(num2char)
@@ -571,7 +600,7 @@ def loader():
         )
 
 
-epochOffset = 128
+epochOffset = 0
 
 
 class Callback(tf.keras.callbacks.Callback):
@@ -598,12 +627,39 @@ def train():
 
 
 def predict():
-    pass
+    prompt = "数学やった?"
+    encoderInput = [3, 51, 51, 454, 703, 5]
+    for c in prompt:
+        encoderInput.append(char2num[c])
+
+    encoderInput.extend(
+        [0]
+        * (math.floor(len(encoderInput) / maxLen) * maxLen + maxLen - len(encoderInput))
+    )
+    encoderInput = np.array(encoderInput).reshape(
+        [1, len(encoderInput) // maxLen, maxLen]
+    )
+    if len(encoderInput[0]) < 2:
+        encoderInput = np.append(encoderInput, [[[0] * maxLen]], 0)
+    encoderInput = np.tile(encoderInput, [batchSize, 1, 1])
+    encoderOutput = models["encoder"].predict(encoderInput)
+    encoderRNNOutput = tf.reshape(
+        models["encoderRNNLayer"](encoderOutput), [batchSize, maxLen, -1]
+    )
+    decoderPositionalEncodingOutput = models["decoderEmbeddingLayer"](
+        encoderRNNOutput
+    ) + tf.tile(
+        tf.cast(
+            positionalEncoding(maxLen, 32)[tf.newaxis, :, tf.newaxis, :], "float32"
+        ),
+        [batchSize, 1, 1, 1],
+    )
+    print(decoderPositionalEncodingOutput)
 
 
-with open("./weights/weight-128.json") as f:
-    weights = load("".join(f.readlines()))
-models["trainer"].set_weights(weights)
+# with open("./weights/weight-205.json") as f:
+#     weights = load("".join(f.readlines()))
+# models["trainer"].set_weights(weights)
 if toTrain:
     train()
 else:
