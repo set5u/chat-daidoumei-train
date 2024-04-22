@@ -120,15 +120,21 @@ class RNNMultiHeadAttentionCell(tf.keras.Model):
 
     def call(self, *inputs):
         batchSize = inputs[0].shape[0]
-        value = tf.reshape(inputs[1], [batchSize, self.maxLen, -1])
+        value = tf.reshape(inputs[0], [batchSize, self.maxLen, -1])
         ret = tf.reshape(
             self.attention.call(
-                tf.reshape(inputs[0], [batchSize, self.maxLen, -1]),
+                tf.reshape(inputs[1], [batchSize, self.maxLen, -1]),
                 value=value,
             ),
             [batchSize, -1],
         )
-        ret = self.add0([inputs[0], tf.reshape(value, (batchSize, -1)), ret])
+        ret = self.add0(
+            [
+                tf.reshape(value, (batchSize, -1)),
+                tf.reshape(inputs[1], (batchSize, -1)),
+                ret,
+            ]
+        )
         ret = self.norm0(ret)
         attnOut = ret
         ret = self.dense0(ret)
@@ -162,24 +168,6 @@ class RNNMultiHeadAttentionCell(tf.keras.Model):
 
     def computeOutputShape(self, inputShape):
         return inputShape
-
-
-class RNNMultiHeadAttention(tf.keras.layers.RNN):
-    def __init__(self, length, depth, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.length = length
-        self.depth = depth
-
-    def get_initial_state(self, batch_size):
-        return [
-            tf.tile(
-                tf.reshape(
-                    positionalEncoding(self.length, self.depth),
-                    [-1, 1, self.length * self.depth],
-                ),
-                (1, batch_size, 1),
-            ),
-        ]
 
 
 class MultiHeadAttentionConcatter(tf.keras.Model):
@@ -267,11 +255,11 @@ def useExtendedTransformer(
         encoderNorm0 = tf.keras.layers.TimeDistributed(
             layer=tf.keras.layers.LayerNormalization(),
         )(encoderAdd0)
-        encoderFF0 = tf.keras.layers.TimeDistributed(
-            layer=tf.keras.layers.Dense(units=dFF, activation="relu"),
+        encoderFF0 = tf.keras.layers.EinsumDense(
+            "abcd,de->abde", (None, dModel, dFF), activation="relu"
         )(encoderNorm0)
-        encoderFF1 = tf.keras.layers.TimeDistributed(
-            layer=tf.keras.layers.Dense(units=dModel, activation="linear"),
+        encoderFF1 = tf.keras.layers.EinsumDense(
+            "abde,dc->abcd", (None, maxLen, dModel), activation="linear"
         )(encoderFF0)
         encoderDropout1 = tf.keras.layers.TimeDistributed(
             layer=tf.keras.layers.Dropout(rate=pDropout),
@@ -284,10 +272,8 @@ def useExtendedTransformer(
     encoderReshape0 = tf.keras.layers.Reshape(target_shape=(None, maxLen * dModel))(
         lastEncoderOutput
     )
-    encoderRNNLayer = RNNMultiHeadAttention(
+    encoderRNNLayer = tf.keras.layers.RNN(
         cell=RNNMultiHeadAttentionCell(h, dModel // h, maxLen),
-        length=maxLen,
-        depth=dModel,
     )
     encoderRNN = encoderRNNLayer(encoderReshape0)
     encoderReshape1 = tf.keras.layers.Reshape(target_shape=(maxLen, dModel))(encoderRNN)
@@ -323,10 +309,8 @@ def useExtendedTransformer(
     decoderReshape0 = tf.keras.layers.Reshape(target_shape=(None, maxLen * dModel))(
         decoderPositionalEncoding
     )
-    decoderRNNLayer = RNNMultiHeadAttention(
+    decoderRNNLayer = tf.keras.layers.RNN(
         cell=RNNMultiHeadAttentionCell(h, dModel // h, maxLen, use_causal_mask=True),
-        length=maxLen,
-        depth=dModel,
         return_sequences=True,
     )
     decoderRNN = decoderRNNLayer(decoderReshape0)
@@ -434,16 +418,15 @@ def useExtendedTransformer(
         )
         decoderNorm1 = decoderNormLayer1(decoderAdd1)
         decoderStandaloneNorm1 = decoderNormLayer1(decoderStandaloneAdd1)
-        decoderFFLayer0 = tf.keras.layers.TimeDistributed(
-            layer=tf.keras.layers.Dense(units=dFF, activation="relu"),
+        decoderFFLayer0 = tf.keras.layers.EinsumDense(
+            "abcd,de->abde", (None, dModel, dFF), activation="relu"
         )
         decoderFF0 = decoderFFLayer0(decoderNorm1)
         decoderStandaloneFF0 = decoderFFLayer0(decoderStandaloneNorm1)
-        decoderFFLayer1 = tf.keras.layers.TimeDistributed(
-            layer=tf.keras.layers.Dense(
-                units=dModel,
-                activation="linear",
-            ),
+        decoderFFLayer1 = tf.keras.layers.EinsumDense(
+            "abde,dc->abcd",
+            (None, maxLen, dModel),
+            activation="linear",
         )
         decoderFF1 = decoderFFLayer1(decoderFF0)
         decoderStandaloneFF1 = decoderFFLayer1(decoderStandaloneFF0)
@@ -615,7 +598,7 @@ def train():
         tf.data.Dataset.from_generator(
             loader, output_types=(("float32", "float32"), "float32")
         ),
-        epochs=128,
+        epochs=512,
         steps_per_epoch=32,
         validation_data=tf.data.Dataset.from_generator(
             loader, output_types=(("float32", "float32"), "float32")
@@ -627,6 +610,7 @@ def train():
 
 
 def predict():
+    batchSize = 1
     prompt = "数学やった?"
     encoderInput = [3, 51, 51, 454, 703, 5]
     for c in prompt:
@@ -644,20 +628,55 @@ def predict():
     encoderInput = np.tile(encoderInput, [batchSize, 1, 1])
     encoderOutput = models["encoder"].predict(encoderInput)
     encoderRNNOutput = tf.reshape(
-        models["encoderRNNLayer"](encoderOutput), [batchSize, maxLen, -1]
-    )
-    decoderPositionalEncodingOutput = models["decoderEmbeddingLayer"](
-        encoderRNNOutput
-    ) + tf.tile(
-        tf.cast(
-            positionalEncoding(maxLen, 32)[tf.newaxis, :, tf.newaxis, :], "float32"
+        models["encoderRNNLayer"](
+            tf.reshape(encoderOutput, [batchSize, -1, maxLen * 32])
         ),
-        [batchSize, 1, 1, 1],
+        [batchSize, maxLen, -1],
     )
-    print(decoderPositionalEncodingOutput)
+    outputs = [1]
+    for i in range(1):
+        decoderInput = outputs
+        decoderInput.extend(
+            [0]
+            * (
+                math.floor(len(decoderInput) / maxLen) * maxLen
+                + maxLen
+                - len(decoderInput)
+            )
+        )
+        decoderInput = np.array(decoderInput).reshape(
+            [1, len(decoderInput) // maxLen, maxLen]
+        )
+        if len(decoderInput[0]) < 2:
+            decoderInput = np.append(decoderInput, [[[0] * maxLen]], 0)
+        decoderInput = np.tile(decoderInput, [batchSize, 1, 1])
+        decoderPositionalEncodingOutput = models["decoderEmbeddingLayer"](
+            decoderInput
+        ) + np.tile(
+            positionalEncoding(maxLen, 32)[tf.newaxis, tf.newaxis, :, :],
+            (batchSize, len(decoderInput[0]), 1, 1),
+        )
+        decoderRNNOutput = tf.reshape(
+            models["decoderRNNLayer"](
+                tf.reshape(
+                    decoderPositionalEncodingOutput, (batchSize, -1, maxLen * 32)
+                )
+            ),
+            (batchSize, -1, maxLen, 32),
+        )
+        decoderLayerOutput = models["decoder"](
+            (
+                decoderRNNOutput,
+                tf.minimum(decoderInput, tf.ones_like(decoderInput)),
+                encoderRNNOutput,
+            )
+        )
+        print(decoderLayerOutput[0])
+        decoderOutput = tf.argmax(decoderLayerOutput, 3)
+        print(decoderOutput[0])
 
 
-# with open("./weights/weight-205.json") as f:
+# with open("./weights/weight-253.json") as f:
 #     weights = load("".join(f.readlines()))
 # models["trainer"].set_weights(weights)
 if toTrain:
