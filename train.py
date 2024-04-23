@@ -348,15 +348,17 @@ def useExtendedTransformer(
     decoderReshape2 = decoderReshape2Layer(encoderReshape1)
     tilerLayer = RNNTiler()
     tiler = tilerLayer(decoderReshape2, decoderInput)
-    decoderMiddleRNNLayer = RNNMultiHeadAttention(
+    bridgeRNNLayer = RNNMultiHeadAttention(
         cell=RNNMultiHeadAttentionCell(h, dModel // h, maxLen),
         return_sequences=True,
         length=maxLen,
         depth=dModel,
     )
-    decoderMiddleRNN = decoderMiddleRNNLayer(tiler)
+    bridgeRNN = bridgeRNNLayer(tiler)
     decoderReshape3Layer = tf.keras.layers.Reshape(target_shape=(None, maxLen, dModel))
-    decoderReshape3 = decoderReshape3Layer(decoderMiddleRNN)
+    decoderReshape3 = decoderReshape3Layer(bridgeRNN)
+    decoderMiddleLayerStateInputs = []
+    decoderMiddleLayerStateOutputs = []
     lastDecoderOutput = decoderReshape1
     lastDecoderStandaloneOutput = decoderStandaloneRNNInput
     for i in range(layers):
@@ -487,8 +489,47 @@ def useExtendedTransformer(
         )
         decoderNorm2 = decoderNormLayer2(decoderAdd2)
         decoderStandaloneNorm2 = decoderNormLayer2(decoderStandaloneAdd2)
-        lastDecoderOutput = decoderNorm2
-        lastDecoderStandaloneOutput = decoderStandaloneNorm2
+        decoderMiddleReshapeLayer0 = tf.keras.layers.Reshape(
+            target_shape=(None, maxLen * dModel)
+        )
+        decoderMiddleReshape0 = decoderMiddleReshapeLayer0(decoderNorm2)
+        decoderStandaloneMiddleReshape0 = decoderMiddleReshapeLayer0(
+            decoderStandaloneNorm2
+        )
+        decoderMiddleRNNLayer = RNNMultiHeadAttention(
+            cell=RNNMultiHeadAttentionCell(h, dModel // h, maxLen),
+            return_sequences=True,
+            length=maxLen,
+            depth=dModel,
+        )
+        decoderMiddleRNNInitialStateInput = tf.keras.layers.Input(
+            shape=(maxLen, dModel)
+        )
+        decoderMiddleLayerStateInputs.append(decoderMiddleRNNInitialStateInput)
+        decoderMiddleRNN = decoderMiddleRNNLayer(decoderMiddleReshape0)
+        decoderStandaloneMiddleRNN = decoderMiddleRNNLayer(
+            decoderStandaloneMiddleReshape0,
+            initial_state=decoderMiddleRNNInitialStateInput,
+        )
+        decoderMiddleReshapeLayer1 = tf.keras.layers.Reshape(
+            target_shape=(None, maxLen, dModel)
+        )
+        decoderMiddleReshape1 = decoderMiddleReshapeLayer1(decoderMiddleRNN)
+        decoderStandaloneMiddleReshape1 = decoderMiddleReshapeLayer1(
+            decoderStandaloneMiddleRNN
+        )
+        decoderAddLayer3 = tf.keras.layers.Add()
+        decoderAdd3 = decoderAddLayer3([decoderMiddleReshape1, decoderNorm2])
+        decoderStandaloneAdd3 = decoderAddLayer3(
+            [decoderStandaloneMiddleReshape1, decoderStandaloneNorm2]
+        )
+        decoderNormLayer3 = tf.keras.layers.TimeDistributed(
+            layer=tf.keras.layers.LayerNormalization(),
+        )
+        decoderNorm3 = decoderNormLayer3(decoderAdd3)
+        decoderStandaloneNorm3 = decoderNormLayer3(decoderStandaloneAdd3)
+        lastDecoderOutput = decoderNorm3
+        lastDecoderStandaloneOutput = decoderStandaloneNorm3
 
     decoderDenseLayer = tf.keras.layers.TimeDistributed(
         layer=tf.keras.layers.Dense(
@@ -514,19 +555,20 @@ def useExtendedTransformer(
         outputs=lastEncoderOutput,
     )
     decoder = tf.keras.Model(
-        inputs=(
+        inputs=[
             decoderStandaloneRNNInput,
             decoderStandaloneMaskInput,
             decoderStandaloneInput,
-        ),
-        outputs=decoderStandaloneDense,
+        ]
+        + decoderMiddleLayerStateInputs,
+        outputs=[decoderStandaloneDense] + decoderMiddleLayerStateOutputs,
     )
     return {
         "trainer": trainer,
         "encoder": encoder,
         "decoder": decoder,
         "encoderRNNLayer": encoderRNNLayer,
-        "bridgeRNNLayer": decoderMiddleRNNLayer,
+        "bridgeRNNLayer": bridgeRNNLayer,
         "decoderRNNLayer": decoderRNNLayer,
         "decoderEmbeddingLayer": decoderEmbeddingLayer,
     }
