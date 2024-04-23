@@ -375,7 +375,8 @@ def useExtendedTransformer(
         )
         decoderMaskedMultiHeadAttentionLayer = tf.keras.layers.TimeDistributed(
             layer=CustomizedMultiHeadAttention(
-                num_heads=h, key_dim=dModel // h, use_causal_mask=i == 0
+                num_heads=h,
+                key_dim=dModel // h,
             ),
         )
         decoderMaskedMultiHeadAttention = decoderMaskedMultiHeadAttentionLayer(
