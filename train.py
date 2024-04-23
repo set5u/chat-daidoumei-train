@@ -523,7 +523,7 @@ def loader():
         decoderOutput = []
         for j in range(batchSize):
             i = math.floor(random.random() * (len(tokens) - 8)) + 8
-            ea = tokens[i - 8 : i - math.floor(random.random() * 8)]
+            ea = tokens[i - math.floor(random.random()) * 8 - 8 : i]
             for k in range(len(ea)):
                 ec = ea[k].copy()
                 ea[k] = ec
