@@ -504,7 +504,7 @@ toTrain = True
 models = useExtendedTransformer(
     32,
     64,
-    0.2 if toTrain else 0.0,
+    0.2,
     4,
     maxLen,
     depth,
@@ -589,7 +589,7 @@ epochOffset = 0
 class Callback(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, _):
         toSave = save(models["trainer"])
-        with open("./weights/weight-" + str(epoch + epochOffset) + ".json", "w") as f:
+        with open("./weights/weight-" + str(epoch + epochOffset) + ".jsonl", "w") as f:
             f.write(toSave)
 
 
@@ -676,7 +676,7 @@ def predict():
         print(decoderOutput[0])
 
 
-# with open("./weights/weight-253.json") as f:
+# with open("./weights/weight-28.jsonl") as f:
 #     weights = load("".join(f.readlines()))
 # models["trainer"].set_weights(weights)
 if toTrain:
