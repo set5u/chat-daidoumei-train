@@ -103,85 +103,6 @@ class CustomizedMultiHeadAttention(tf.keras.layers.MultiHeadAttention):
         return shape
 
 
-# class RNNMultiHeadAttentionCell(tf.keras.Model):
-#     def __init__(self, numHeads, keyDim, maxLen, use_causal_mask=False):
-#         super().__init__()
-#         self.maxLen = maxLen
-#         self.state_size = keyDim * numHeads * maxLen
-#         self.attention = CustomizedMultiHeadAttention(
-#             use_causal_mask=use_causal_mask, num_heads=numHeads, key_dim=keyDim
-#         )
-#         self.add0 = tf.keras.layers.Add()
-#         self.norm0 = tf.keras.layers.LayerNormalization()
-#         self.dense0 = tf.keras.layers.Dense(units=self.state_size, activation="tanh")
-#         self.dense1 = tf.keras.layers.Dense(units=self.state_size, activation="linear")
-#         self.add1 = tf.keras.layers.Add()
-#         self.norm1 = tf.keras.layers.LayerNormalization()
-
-#     def call(self, *inputs):
-#         batchSize = inputs[0].shape[0]
-#         value = tf.reshape(inputs[1], [batchSize, self.maxLen, -1])
-#         ret = tf.reshape(
-#             self.attention.call(
-#                 tf.reshape(inputs[0], [batchSize, self.maxLen, -1]),
-#                 value=value,
-#             ),
-#             [batchSize, -1],
-#         )
-#         ret = self.add0(
-#             [
-#                 tf.reshape(value, (batchSize, -1)),
-#                 tf.reshape(inputs[0], (batchSize, -1)),
-#                 ret,
-#             ]
-#         )
-#         ret = self.norm0(ret)
-#         attnOut = ret
-#         ret = self.dense0(ret)
-#         ret = self.dense1(ret)
-#         ret = self.add1([attnOut, ret])
-#         ret = self.norm1(ret)
-#         return [ret, ret]
-
-#     def build(self, inputShape):
-#         super().build(inputShape)
-#         self.attention.build(
-#             [
-#                 [inputShape[0], self.maxLen, inputShape[1] // self.maxLen],
-#                 [inputShape[0], self.maxLen, inputShape[1] // self.maxLen],
-#             ]
-#         )
-#         self.dense0.build([inputShape[0], self.state_size])
-#         self.dense1.build([inputShape[0], self.state_size])
-#         self.add0.build(
-#             [
-#                 [inputShape[0], self.state_size],
-#                 [inputShape[0], self.state_size],
-#                 [inputShape[0], self.state_size],
-#             ]
-#         )
-#         self.norm0.build([inputShape[0], self.state_size])
-#         self.add1.build(
-#             [[inputShape[0], self.state_size], [inputShape[0], self.state_size]]
-#         )
-#         self.norm1.build([inputShape[0], self.state_size])
-
-
-# class RNNMultiHeadAttention(tf.keras.layers.RNN):
-#     def __init__(self, length, depth, *args, **kwargs):
-#         super().__init__(*args, **kwargs)
-#         self.length = length
-#         self.depth = depth
-
-#     def get_initial_state(self, batch_size):
-#         return tf.tile(
-#             tf.reshape(positionalEncoding(self.length, self.depth), (-1,))[
-#                 tf.newaxis, :
-#             ],
-#             (batch_size, 1),
-#         )
-
-
 class MultiHeadAttentionConcatter(tf.keras.Model):
 
     def call(self, *inputs):
@@ -285,11 +206,6 @@ def useExtendedTransformer(
         lastEncoderOutput
     )
     encoderRNNLayer = tf.keras.layers.GRU(maxLen * dModel)
-    # RNNMultiHeadAttention(
-    #     cell=RNNMultiHeadAttentionCell(h, dModel // h, maxLen),
-    #     length=maxLen,
-    #     depth=dModel,
-    # )
     encoderRNN = encoderRNNLayer(encoderReshape0)
     encoderReshape1 = tf.keras.layers.Reshape(target_shape=(maxLen, dModel))(encoderRNN)
     decoderInput = tf.keras.Input(shape=(None, maxLen))
@@ -325,12 +241,6 @@ def useExtendedTransformer(
         decoderPositionalEncoding
     )
     decoderRNNLayer = tf.keras.layers.GRU(maxLen * dModel, return_sequences=True)
-    # RNNMultiHeadAttention(
-    #     cell=RNNMultiHeadAttentionCell(h, dModel // h, maxLen, use_causal_mask=True),
-    #     return_sequences=True,
-    #     length=maxLen,
-    #     depth=dModel,
-    # )
     decoderRNN = decoderRNNLayer(decoderReshape0)
     decoderReshape1 = tf.keras.layers.Reshape(target_shape=(None, maxLen, dModel))(
         decoderRNN
