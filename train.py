@@ -303,7 +303,7 @@ def useExtendedTransformer(
     encoderRNN = encoderRNNLayer(encoderReshape0)
     encoderReshape1 = tf.keras.layers.Reshape(target_shape=(maxLen, dModel))(encoderRNN)
     decoderInput = tf.keras.Input(shape=(None, maxLen))
-    decoderStandaloneInput = tf.keras.Input(shape=(maxLen, dModel))
+    decoderStandaloneInput = tf.keras.Input(shape=(None, maxLen, dModel))
     decoderStandaloneRNNInput = tf.keras.Input(
         shape=(None, maxLen, dModel),
     )
@@ -346,10 +346,8 @@ def useExtendedTransformer(
     )
     decoderReshape2Layer = tf.keras.layers.Reshape(target_shape=(1, maxLen * dModel))
     decoderReshape2 = decoderReshape2Layer(encoderReshape1)
-    decoderStandaloneReshape2 = decoderReshape2Layer(decoderStandaloneInput)
     tilerLayer = RNNTiler()
     tiler = tilerLayer(decoderReshape2, decoderInput)
-    tilerStandalone = tilerLayer(decoderStandaloneReshape2, decoderInput)
     decoderMiddleRNNLayer = RNNMultiHeadAttention(
         cell=RNNMultiHeadAttentionCell(h, dModel // h, maxLen),
         return_sequences=True,
@@ -357,16 +355,10 @@ def useExtendedTransformer(
         depth=dModel,
     )
     decoderMiddleRNN = decoderMiddleRNNLayer(tiler)
-    decoderStandaloneMiddleRNN = decoderMiddleRNNLayer(tilerStandalone)
     decoderReshape3Layer = tf.keras.layers.Reshape(target_shape=(None, maxLen, dModel))
     decoderReshape3 = decoderReshape3Layer(decoderMiddleRNN)
-    decoderStandaloneReshape3 = decoderReshape3Layer(decoderStandaloneMiddleRNN)
     lastDecoderOutput = decoderReshape1
     lastDecoderStandaloneOutput = decoderStandaloneRNNInput
-    lastDecoderOutput = decoderReshape3 + lastDecoderOutput
-    lastDecoderStandaloneOutput = (
-        decoderStandaloneReshape3 + lastDecoderStandaloneOutput
-    )
     for i in range(layers):
         decoderMaskedMultiHeadAttentionConcatterLayer = MultiHeadAttentionConcatter()
         decoderMaskedMultiHeadAttentionConcatter = (
@@ -422,7 +414,7 @@ def useExtendedTransformer(
         decoderMultiHeadAttentionConcatterLayer = MultiHeadAttentionConcatter()
         decoderMultiHeadAttentionConcatter = decoderMultiHeadAttentionConcatterLayer(
             decoderNorm0,
-            encoderReshape1,
+            decoderReshape3,
             decoderAttentionMask,
         )
         decoderStandaloneMultiHeadAttentionConcatter = (
@@ -533,6 +525,7 @@ def useExtendedTransformer(
         "encoder": encoder,
         "decoder": decoder,
         "encoderRNNLayer": encoderRNNLayer,
+        "bridgeRNNLayer": decoderMiddleRNNLayer,
         "decoderRNNLayer": decoderRNNLayer,
         "decoderEmbeddingLayer": decoderEmbeddingLayer,
     }
@@ -546,7 +539,7 @@ with open("./tokens.json") as f:
     tokens = json.loads("".join(f.readlines()))
 depth = len(num2char)
 maxLen = 8
-toTrain = False
+toTrain = True
 models = useExtendedTransformer(
     32,
     64,
@@ -559,7 +552,7 @@ models = useExtendedTransformer(
     4,
 )
 models["trainer"].summary()
-tf.keras.utils.plot_model(models["trainer"], "model.png", show_shapes=True)
+# tf.keras.utils.plot_model(models["trainer"], "model.png", show_shapes=True)
 
 
 def loader():
@@ -644,7 +637,7 @@ def train():
         tf.data.Dataset.from_generator(
             loader, output_types=(("float32", "float32"), "float32")
         ),
-        epochs=512,
+        epochs=128,
         steps_per_epoch=32,
         validation_data=tf.data.Dataset.from_generator(
             loader, output_types=(("float32", "float32"), "float32")
@@ -712,11 +705,20 @@ def predict():
             ),
             (batchSize, -1, maxLen, 32),
         )
+        bridgeRNNOutput = tf.reshape(
+            models["bridgeRNNLayer"](
+                tf.tile(
+                    tf.reshape(encoderRNNOutput, (batchSize, 1, maxLen, 32)),
+                    (1, decoderInput.shape[1], 1, 1),
+                )
+            ),
+            (batchSize, -1, maxLen, 32),
+        )
         decoderLayerOutput = models["decoder"](
             (
                 decoderRNNOutput,
                 tf.minimum(decoderInput, tf.ones_like(decoderInput)),
-                encoderRNNOutput,
+                bridgeRNNOutput,
             )
         )
         decoderOutput = tf.argmax(decoderLayerOutput, 3)
