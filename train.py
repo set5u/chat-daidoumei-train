@@ -556,7 +556,8 @@ models["trainer"].summary()
 
 
 def loader():
-    zeros = np.array([0] * maxLen)
+    pads = np.array([0] * maxLen)
+    eoses = np.array([2] * maxLen)
     while True:
         encoderInput = []
         decoderInput = []
@@ -577,21 +578,21 @@ def loader():
 
             da = tokens[i].copy()
             da.insert(0, 1)
-            da.extend([0] * (math.floor(len(da) / maxLen) * maxLen + maxLen - len(da)))
+            da.extend([2] * (math.floor(len(da) / maxLen) * maxLen + maxLen - len(da)))
             d = np.array(da).reshape([len(da) // maxLen, maxLen])
 
             de = tokens[i].copy()
             de.append(2)
-            de.extend([0] * (math.floor(len(de) / maxLen) * maxLen + maxLen - len(de)))
+            de.extend([2] * (math.floor(len(de) / maxLen) * maxLen + maxLen - len(de)))
             o = np.array(de).reshape([len(de) // maxLen, maxLen])
             if len(e) < 2:
-                e = np.append(e, [zeros], 0)
+                e = np.append(e, [pads], 0)
 
             if len(d) < 2:
-                d = np.append(d, [zeros], 0)
+                d = np.append(d, [eoses], 0)
 
             if len(o) < 2:
-                o = np.append(o, [zeros], 0)
+                o = np.append(o, [eoses], 0)
             encoderInput.append(e)
             decoderInput.append(d)
             decoderOutput.append(o)
@@ -600,14 +601,14 @@ def loader():
             encoderInputMax = max(len(e), encoderInputMax)
         for b, e in enumerate(encoderInput):
             for a in range(encoderInputMax - len(e)):
-                encoderInput[b] = np.append(encoderInput[b], [zeros], 0)
+                encoderInput[b] = np.append(encoderInput[b], [pads], 0)
         decoderInputMax = 0
         for e in decoderInput:
             decoderInputMax = max(len(e), decoderInputMax)
 
         for b, e in enumerate(decoderInput):
             for a in range(decoderInputMax - len(e)):
-                decoderInput[b] = np.append(decoderInput[b], [zeros], 0)
+                decoderInput[b] = np.append(decoderInput[b], [eoses], 0)
 
         decoderOutputMax = 0
         for e in decoderOutput:
@@ -615,7 +616,7 @@ def loader():
 
         for b, e in enumerate(decoderOutput):
             for a in range(decoderOutputMax - len(e)):
-                decoderOutput[b] = np.append(decoderOutput[b], [zeros], 0)
+                decoderOutput[b] = np.append(decoderOutput[b], [eoses], 0)
         yield (
             (np.array(encoderInput), np.array(decoderInput)),
             np.array(decoderOutput),
@@ -676,7 +677,7 @@ def predict():
     for i in range(32):
         decoderInput = outputs.copy()
         decoderInput.extend(
-            [0]
+            [2]
             * (
                 math.floor(len(decoderInput) / maxLen) * maxLen
                 + maxLen
@@ -688,7 +689,7 @@ def predict():
             [len(decoderInput) // maxLen, maxLen]
         )
         if len(decoderInput) < 2:
-            decoderInput = np.append(decoderInput, [[0] * maxLen], 0)
+            decoderInput = np.append(decoderInput, [[2] * maxLen], 0)
         decoderInput = decoderInput[tf.newaxis, :, :]
         decoderInput = np.tile(decoderInput, [batchSize, 1, 1])
         decoderPositionalEncodingOutput = models["decoderEmbeddingLayer"](
