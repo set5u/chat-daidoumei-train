@@ -258,40 +258,120 @@ def useExtendedTransformer(
     encoderPositionalEncoding = tf.keras.layers.Add()(
         [encoderEmbedding, encoderConstantPositionalEncoding]
     )
+    encoderMiddleLayerStateInputs = []
+    encoderMiddleLayerStateOutputs = []
     lastEncoderOutput = encoderPositionalEncoding
+    lastEncoderStandaloneOutput = encoderPositionalEncoding
     for i in range(layers):
-        encoderMultiHeadAttentionConcatter = MultiHeadAttentionConcatter()(
+        encoderMultiHeadAttentionConcatterLayer = MultiHeadAttentionConcatter()
+        encoderMultiHeadAttentionConcatter = encoderMultiHeadAttentionConcatterLayer(
             lastEncoderOutput,
             lastEncoderOutput,
             encoderAttentionMask,
         )
-        encoderMultiHeadAttention = tf.keras.layers.TimeDistributed(
+        encoderStandaloneMultiHeadAttentionConcatter = (
+            encoderMultiHeadAttentionConcatterLayer(
+                lastEncoderStandaloneOutput,
+                lastEncoderStandaloneOutput,
+                encoderAttentionMask,
+            )
+        )
+        encoderMultiHeadAttentionLayer = tf.keras.layers.TimeDistributed(
             layer=CustomizedMultiHeadAttention(
                 num_heads=h,
                 key_dim=dModel // h,
             ),
-        )(encoderMultiHeadAttentionConcatter)
-        encoderDropout0 = tf.keras.layers.TimeDistributed(
+        )
+        encoderMultiHeadAttention = encoderMultiHeadAttentionLayer(
+            encoderMultiHeadAttentionConcatter
+        )
+        encoderStandaloneMultiHeadAttention = encoderMultiHeadAttentionLayer(
+            encoderStandaloneMultiHeadAttentionConcatter
+        )
+        encoderDropoutLayer0 = tf.keras.layers.TimeDistributed(
             layer=tf.keras.layers.Dropout(rate=pDropout),
-        )(encoderMultiHeadAttention)
-        encoderAdd0 = tf.keras.layers.Add()([encoderDropout0, lastEncoderOutput])
-        encoderNorm0 = tf.keras.layers.TimeDistributed(
+        )
+        encoderDropout0 = encoderDropoutLayer0(encoderMultiHeadAttention)
+        encoderStandaloneDropout0 = encoderDropoutLayer0(
+            encoderStandaloneMultiHeadAttention
+        )
+        encoderAddLayer0 = tf.keras.layers.Add()
+        encoderAdd0 = encoderAddLayer0([encoderDropout0, lastEncoderOutput])
+        encoderStandaloneAdd0 = encoderAddLayer0(
+            [encoderStandaloneDropout0, lastEncoderStandaloneOutput]
+        )
+        encoderNormLayer0 = tf.keras.layers.TimeDistributed(
             layer=tf.keras.layers.LayerNormalization(),
-        )(encoderAdd0)
-        encoderFF0 = tf.keras.layers.EinsumDense(
+        )
+        encoderNorm0 = encoderNormLayer0(encoderAdd0)
+        encoderStandaloneNorm0 = encoderNormLayer0(encoderStandaloneAdd0)
+        encoderFFLayer0 = tf.keras.layers.EinsumDense(
             "abcd,de->abde", (None, dModel, dFF), activation="relu"
-        )(encoderNorm0)
-        encoderFF1 = tf.keras.layers.EinsumDense(
+        )
+        encoderFF0 = encoderFFLayer0(encoderNorm0)
+        encoderStandaloneFF0 = encoderFFLayer0(encoderStandaloneNorm0)
+        encoderFFLayer1 = tf.keras.layers.EinsumDense(
             "abde,dc->abcd", (None, maxLen, dModel), activation="linear"
-        )(encoderFF0)
-        encoderDropout1 = tf.keras.layers.TimeDistributed(
+        )
+        encoderFF1 = encoderFFLayer1(encoderFF0)
+        encoderStandaloneFF1 = encoderFFLayer1(encoderStandaloneFF0)
+        encoderDropoutLayer1 = tf.keras.layers.TimeDistributed(
             layer=tf.keras.layers.Dropout(rate=pDropout),
-        )(encoderFF1)
-        encoderAdd1 = tf.keras.layers.Add()([encoderNorm0, encoderDropout1])
-        encoderNorm1 = tf.keras.layers.TimeDistributed(
+        )
+        encoderDropout1 = encoderDropoutLayer1(encoderFF1)
+        encoderStandaloneDropout1 = encoderDropoutLayer1(encoderStandaloneFF1)
+        encoderAddLayer1 = tf.keras.layers.Add()
+        encoderAdd1 = encoderAddLayer1([encoderNorm0, encoderDropout1])
+        encoderStandaloneAdd1 = encoderAddLayer1(
+            [encoderStandaloneNorm0, encoderStandaloneDropout1]
+        )
+        encoderNormLayer1 = tf.keras.layers.TimeDistributed(
             layer=tf.keras.layers.LayerNormalization(),
-        )(encoderAdd1)
-        lastEncoderOutput = encoderNorm1
+        )
+        encoderNorm1 = encoderNormLayer1(encoderAdd1)
+        encoderStandaloneNorm1 = encoderNormLayer1(encoderStandaloneAdd1)
+        encoderMiddleReshapeLayer0 = tf.keras.layers.Reshape(
+            target_shape=(None, maxLen * dModel)
+        )
+        encoderMiddleReshape0 = encoderMiddleReshapeLayer0(encoderNorm1)
+        encoderStandaloneMiddleReshape0 = encoderMiddleReshapeLayer0(
+            encoderStandaloneNorm1
+        )
+        encoderMiddleRNNLayer = RNNMultiHeadAttention(
+            cell=RNNMultiHeadAttentionCell(h, dModel // h, maxLen),
+            return_sequences=True,
+            length=maxLen,
+            depth=dModel,
+        )
+        encoderMiddleRNNInitialStateInput = tf.keras.layers.Input(
+            shape=(maxLen, dModel)
+        )
+        encoderMiddleLayerStateInputs.append(encoderMiddleRNNInitialStateInput)
+        encoderMiddleRNN = encoderMiddleRNNLayer(encoderMiddleReshape0)
+        encoderStandaloneMiddleRNN = encoderMiddleRNNLayer(
+            encoderStandaloneMiddleReshape0,
+            initial_state=encoderMiddleRNNInitialStateInput,
+        )
+        encoderMiddleLayerStateOutputs.append(encoderStandaloneMiddleRNN)
+        encoderMiddleReshapeLayer1 = tf.keras.layers.Reshape(
+            target_shape=(None, maxLen, dModel)
+        )
+        encoderMiddleReshape1 = encoderMiddleReshapeLayer1(encoderMiddleRNN)
+        encoderStandaloneMiddleReshape1 = encoderMiddleReshapeLayer1(
+            encoderStandaloneMiddleRNN
+        )
+        encoderAddLayer2 = tf.keras.layers.Add()
+        encoderAdd2 = encoderAddLayer2([encoderMiddleReshape1, encoderNorm1])
+        encoderStandaloneAdd2 = encoderAddLayer2(
+            [encoderStandaloneMiddleReshape1, encoderStandaloneNorm1]
+        )
+        encoderNormLayer2 = tf.keras.layers.TimeDistributed(
+            layer=tf.keras.layers.LayerNormalization(),
+        )
+        encoderNorm2 = encoderNormLayer2(encoderAdd2)
+        encoderStandaloneNorm2 = encoderNormLayer2(encoderStandaloneAdd2)
+        lastEncoderOutput = encoderNorm2
+        lastEncoderStandaloneOutput = encoderStandaloneNorm2
     encoderReshape0 = tf.keras.layers.Reshape(target_shape=(None, maxLen * dModel))(
         lastEncoderOutput
     )
@@ -511,6 +591,7 @@ def useExtendedTransformer(
             decoderStandaloneMiddleReshape0,
             initial_state=decoderMiddleRNNInitialStateInput,
         )
+        decoderMiddleLayerStateOutputs.append(decoderStandaloneMiddleRNN)
         decoderMiddleReshapeLayer1 = tf.keras.layers.Reshape(
             target_shape=(None, maxLen, dModel)
         )
@@ -551,8 +632,8 @@ def useExtendedTransformer(
         run_eagerly=True,
     )
     encoder = tf.keras.Model(
-        inputs=encoderInput,
-        outputs=lastEncoderOutput,
+        inputs=[encoderInput] + encoderMiddleLayerStateInputs,
+        outputs=[lastEncoderOutput] + encoderMiddleLayerStateOutputs,
     )
     decoder = tf.keras.Model(
         inputs=[
@@ -595,7 +676,7 @@ models = useExtendedTransformer(
     4,
 )
 models["trainer"].summary()
-# tf.keras.utils.plot_model(models["trainer"], "model.png", show_shapes=True)
+tf.keras.utils.plot_model(models["trainer"], "model.png", show_shapes=True)
 
 
 def loader():
