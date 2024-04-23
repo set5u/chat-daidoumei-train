@@ -130,4 +130,4 @@ dist
 .pnp.*
 
 *.bin
-weight*.json
+weight*.jsonl
