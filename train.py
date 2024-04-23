@@ -312,6 +312,7 @@ def useExtendedTransformer(
     decoderRNNLayer = tf.keras.layers.RNN(
         cell=RNNMultiHeadAttentionCell(h, dModel // h, maxLen, use_causal_mask=True),
         return_sequences=True,
+        use_causal_mask=True,
     )
     decoderRNN = decoderRNNLayer(decoderReshape0)
     decoderReshape1 = tf.keras.layers.Reshape(target_shape=(None, maxLen, dModel))(
