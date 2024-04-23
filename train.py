@@ -111,27 +111,29 @@ class RNNMultiHeadAttentionCell(tf.keras.Model):
         self.attention = CustomizedMultiHeadAttention(
             use_causal_mask=use_causal_mask, num_heads=numHeads, key_dim=keyDim
         )
+        self.activation = tf.keras.layers.Activation("sigmoid")
         self.add0 = tf.keras.layers.Add()
         self.norm0 = tf.keras.layers.LayerNormalization()
-        self.dense0 = tf.keras.layers.Dense(units=self.state_size, activation="tanh")
+        self.dense0 = tf.keras.layers.Dense(units=self.state_size, activation="sigmoid")
         self.dense1 = tf.keras.layers.Dense(units=self.state_size, activation="linear")
         self.add1 = tf.keras.layers.Add()
         self.norm1 = tf.keras.layers.LayerNormalization()
 
     def call(self, *inputs):
         batchSize = inputs[0].shape[0]
-        value = tf.reshape(inputs[1], [batchSize, self.maxLen, -1])
+        value = tf.reshape(inputs[0], [batchSize, self.maxLen, -1])
         ret = tf.reshape(
             self.attention.call(
-                tf.reshape(inputs[0], [batchSize, self.maxLen, -1]),
+                tf.reshape(inputs[1], [batchSize, self.maxLen, -1]),
                 value=value,
             ),
             [batchSize, -1],
         )
+        ret = self.activation(ret)
         ret = self.add0(
             [
                 tf.reshape(value, (batchSize, -1)),
-                tf.reshape(inputs[0], (batchSize, -1)),
+                tf.reshape(inputs[1], (batchSize, -1)),
                 ret,
             ]
         )
@@ -165,6 +167,7 @@ class RNNMultiHeadAttentionCell(tf.keras.Model):
             [[inputShape[0], self.state_size], [inputShape[0], self.state_size]]
         )
         self.norm1.build([inputShape[0], self.state_size])
+        self.activation.build([inputShape[0], self.state_size])
 
 
 class RNNMultiHeadAttention(tf.keras.layers.RNN):
@@ -213,6 +216,14 @@ class MultiHeadAttentionConcatter(tf.keras.Model):
     def compute_output_shape(self, input_shape):
         input = input_shape[0] if isinstance(input_shape[0], list) else input_shape
         return input[0][0:2] + (3,) + input[0][2:]
+
+
+class RNNTiler(tf.keras.Model):
+    def call(self, *inputs):
+        return tf.tile(inputs[0], (1, inputs[1].shape[1], 1))
+
+    def compute_output_shape(self, inputShape):
+        return inputShape[0][0:1] + (None,) + inputShape[0][2:]
 
 
 def useExtendedTransformer(
@@ -333,8 +344,29 @@ def useExtendedTransformer(
     decoderReshape1 = tf.keras.layers.Reshape(target_shape=(None, maxLen, dModel))(
         decoderRNN
     )
+    decoderReshape2Layer = tf.keras.layers.Reshape(target_shape=(1, maxLen * dModel))
+    decoderReshape2 = decoderReshape2Layer(encoderReshape1)
+    decoderStandaloneReshape2 = decoderReshape2Layer(decoderStandaloneInput)
+    tilerLayer = RNNTiler()
+    tiler = tilerLayer(decoderReshape2, decoderInput)
+    tilerStandalone = tilerLayer(decoderStandaloneReshape2, decoderInput)
+    decoderMiddleRNNLayer = RNNMultiHeadAttention(
+        cell=RNNMultiHeadAttentionCell(h, dModel // h, maxLen),
+        return_sequences=True,
+        length=maxLen,
+        depth=dModel,
+    )
+    decoderMiddleRNN = decoderMiddleRNNLayer(tiler)
+    decoderStandaloneMiddleRNN = decoderMiddleRNNLayer(tilerStandalone)
+    decoderReshape3Layer = tf.keras.layers.Reshape(target_shape=(None, maxLen, dModel))
+    decoderReshape3 = decoderReshape3Layer(decoderMiddleRNN)
+    decoderStandaloneReshape3 = decoderReshape3Layer(decoderStandaloneMiddleRNN)
     lastDecoderOutput = decoderReshape1
     lastDecoderStandaloneOutput = decoderStandaloneRNNInput
+    lastDecoderOutput = decoderReshape3 + lastDecoderOutput
+    lastDecoderStandaloneOutput = (
+        decoderStandaloneReshape3 + lastDecoderStandaloneOutput
+    )
     for i in range(layers):
         decoderMaskedMultiHeadAttentionConcatterLayer = MultiHeadAttentionConcatter()
         decoderMaskedMultiHeadAttentionConcatter = (
@@ -351,8 +383,7 @@ def useExtendedTransformer(
         )
         decoderMaskedMultiHeadAttentionLayer = tf.keras.layers.TimeDistributed(
             layer=CustomizedMultiHeadAttention(
-                num_heads=h,
-                key_dim=dModel // h,
+                num_heads=h, key_dim=dModel // h, use_causal_mask=i == 0
             ),
         )
         decoderMaskedMultiHeadAttention = decoderMaskedMultiHeadAttentionLayer(
@@ -528,7 +559,7 @@ models = useExtendedTransformer(
     4,
 )
 models["trainer"].summary()
-# tf.keras.utils.plot_model(models["trainer"], "model.png", show_shapes=True)
+tf.keras.utils.plot_model(models["trainer"], "model.png", show_shapes=True)
 
 
 def loader():
