@@ -337,7 +337,6 @@ def useExtendedTransformer(
             layer=CustomizedMultiHeadAttention(
                 num_heads=h,
                 key_dim=dModel // h,
-                use_causal_mask=True,
             ),
         )
         decoderMaskedMultiHeadAttention = decoderMaskedMultiHeadAttentionLayer(
