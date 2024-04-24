@@ -681,7 +681,6 @@ tf.keras.utils.plot_model(models["trainer"], "model.png", show_shapes=True)
 
 def loader():
     pads = np.array([0] * maxLen)
-    eoses = np.array([2] * maxLen)
     while True:
         encoderInput = []
         decoderInput = []
@@ -702,21 +701,21 @@ def loader():
 
             da = tokens[i].copy()
             da.insert(0, 1)
-            da.extend([2] * (math.floor(len(da) / maxLen) * maxLen + maxLen - len(da)))
+            da.extend([0] * (math.floor(len(da) / maxLen) * maxLen + maxLen - len(da)))
             d = np.array(da).reshape([len(da) // maxLen, maxLen])
 
             de = tokens[i].copy()
             de.append(2)
-            de.extend([2] * (math.floor(len(de) / maxLen) * maxLen + maxLen - len(de)))
+            de.extend([0] * (math.floor(len(de) / maxLen) * maxLen + maxLen - len(de)))
             o = np.array(de).reshape([len(de) // maxLen, maxLen])
             if len(e) < 2:
                 e = np.append(e, [pads], 0)
 
             if len(d) < 2:
-                d = np.append(d, [eoses], 0)
+                d = np.append(d, [pads], 0)
 
             if len(o) < 2:
-                o = np.append(o, [eoses], 0)
+                o = np.append(o, [pads], 0)
             encoderInput.append(e)
             decoderInput.append(d)
             decoderOutput.append(o)
@@ -732,7 +731,7 @@ def loader():
 
         for b, e in enumerate(decoderInput):
             for a in range(decoderInputMax - len(e)):
-                decoderInput[b] = np.append(decoderInput[b], [eoses], 0)
+                decoderInput[b] = np.append(decoderInput[b], [pads], 0)
 
         decoderOutputMax = 0
         for e in decoderOutput:
@@ -740,14 +739,14 @@ def loader():
 
         for b, e in enumerate(decoderOutput):
             for a in range(decoderOutputMax - len(e)):
-                decoderOutput[b] = np.append(decoderOutput[b], [eoses], 0)
+                decoderOutput[b] = np.append(decoderOutput[b], [pads], 0)
         yield (
             (np.array(encoderInput), np.array(decoderInput)),
             np.array(decoderOutput),
         )
 
 
-epochOffset = 127
+epochOffset = 0
 
 
 class Callback(tf.keras.callbacks.Callback):
@@ -809,7 +808,7 @@ def predict():
     for i in range(32):
         decoderInput = outputs.copy()
         decoderInput.extend(
-            [2]
+            [0]
             * (
                 math.floor(len(decoderInput) / maxLen) * maxLen
                 + maxLen
@@ -821,7 +820,7 @@ def predict():
             [len(decoderInput) // maxLen, maxLen]
         )
         if len(decoderInput) < 2:
-            decoderInput = np.append(decoderInput, [[2] * maxLen], 0)
+            decoderInput = np.append(decoderInput, [[0] * maxLen], 0)
         decoderInput = decoderInput[tf.newaxis, :, :]
         decoderInput = np.tile(decoderInput, [batchSize, 1, 1])
         decoderPositionalEncodingOutput = models["decoderEmbeddingLayer"](
@@ -864,9 +863,9 @@ def predict():
         outputs.append(decoderArgmax[i].numpy())
 
 
-with open("./weights/weight-127.jsonl") as f:
-    weights = load("".join(f.readlines()))
-models["trainer"].set_weights(weights)
+# with open("./weights/weight-127.jsonl") as f:
+#     weights = load("".join(f.readlines()))
+# models["trainer"].set_weights(weights)
 if toTrain:
     train()
 else:
