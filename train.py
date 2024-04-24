@@ -6,7 +6,7 @@ import random
 import pandas as pd
 from functools import reduce
 
-batchSize = 32
+batchSize = 16
 
 
 def save(model):
