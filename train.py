@@ -747,7 +747,7 @@ def loader():
         )
 
 
-epochOffset = 0
+epochOffset = 127
 
 
 class Callback(tf.keras.callbacks.Callback):
@@ -762,7 +762,7 @@ def train():
         tf.data.Dataset.from_generator(
             loader, output_types=(("float32", "float32"), "float32")
         ),
-        epochs=128,
+        epochs=512,
         steps_per_epoch=32,
         validation_data=tf.data.Dataset.from_generator(
             loader, output_types=(("float32", "float32"), "float32")
@@ -770,7 +770,7 @@ def train():
         validation_steps=4,
         callbacks=[Callback()],
     )
-    pd.DataFrame(history.history)[["loss", "val_loss"]].show()
+    pd.DataFrame(history.history)[["loss", "val_loss"]].plot()
 
 
 def predict():
@@ -789,11 +789,19 @@ def predict():
     )
     if len(encoderInput[0]) < 2:
         encoderInput = np.append(encoderInput, [[[0] * maxLen]], 0)
-    encoderInput = np.tile(encoderInput, [batchSize, 1, 1])
-    encoderOutput = models["encoder"](encoderInput)
+    encoderInput = tf.tile(encoderInput, [batchSize, 1, 1])
+    encoderOutput = models["encoder"](
+        (
+            encoderInput,
+            tf.reshape(positionalEncoding(maxLen, 32), (1, maxLen, 32)),
+            tf.reshape(positionalEncoding(maxLen, 32), (1, maxLen, 32)),
+            tf.reshape(positionalEncoding(maxLen, 32), (1, maxLen, 32)),
+            tf.reshape(positionalEncoding(maxLen, 32), (1, maxLen, 32)),
+        )
+    )
     encoderRNNOutput = tf.reshape(
         models["encoderRNNLayer"](
-            tf.reshape(encoderOutput, [batchSize, -1, maxLen * 32])
+            tf.reshape(encoderOutput[0], [batchSize, -1, maxLen * 32])
         ),
         [batchSize, maxLen, -1],
     )
@@ -844,17 +852,21 @@ def predict():
                 decoderRNNOutput,
                 tf.minimum(decoderInput, tf.ones_like(decoderInput)),
                 bridgeRNNOutput,
+                tf.reshape(positionalEncoding(maxLen, 32), (1, maxLen, 32)),
+                tf.reshape(positionalEncoding(maxLen, 32), (1, maxLen, 32)),
+                tf.reshape(positionalEncoding(maxLen, 32), (1, maxLen, 32)),
+                tf.reshape(positionalEncoding(maxLen, 32), (1, maxLen, 32)),
             )
         )
-        decoderOutput = tf.argmax(decoderLayerOutput, 3)
+        decoderOutput = tf.argmax(decoderLayerOutput[0], 2)
         decoderArgmax = tf.reshape(decoderOutput[0], (-1,))
         print(num2char[decoderArgmax[i]], end="")
         outputs.append(decoderArgmax[i].numpy())
 
 
-# with open("./weights/weight-100.jsonl") as f:
-#     weights = load("".join(f.readlines()))
-# models["trainer"].set_weights(weights)
+with open("./weights/weight-127.jsonl") as f:
+    weights = load("".join(f.readlines()))
+models["trainer"].set_weights(weights)
 if toTrain:
     train()
 else:
