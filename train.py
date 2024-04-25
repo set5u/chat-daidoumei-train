@@ -832,6 +832,7 @@ epochOffset = 1
 
 class Callback(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, _):
+        predict()
         toSave = save(models["trainer"])
         with open("./weights/weight-" + str(epoch + epochOffset) + ".jsonl", "w") as f:
             f.write(toSave)
