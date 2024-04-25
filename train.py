@@ -318,6 +318,8 @@ def useExtendedTransformer(
     encoderMiddleLayerStateOutputs = []
     lastEncoderOutput = encoderPositionalEncoding
     lastEncoderStandaloneOutput = encoderPositionalEncoding
+    encoderBypass = []
+    encoderStandaloneBypass = []
     for i in range(layers):
         encoderMultiHeadAttentionConcatterLayer = MultiHeadAttentionConcatter()
         encoderMultiHeadAttentionConcatter = encoderMultiHeadAttentionConcatterLayer(
@@ -426,8 +428,18 @@ def useExtendedTransformer(
         )
         encoderNorm2 = encoderNormLayer2(encoderAdd2)
         encoderStandaloneNorm2 = encoderNormLayer2(encoderStandaloneAdd2)
+        encoderBypass.append(lastEncoderOutput)
+        encoderStandaloneBypass.append(lastEncoderStandaloneOutput)
         lastEncoderOutput = encoderNorm2
         lastEncoderStandaloneOutput = encoderStandaloneNorm2
+        j = 1
+        while (i + 1) % j == 0:
+            layer = tf.keras.layers.Add()
+            lastEncoderOutput = layer([encoderBypass[i - j + 1], lastEncoderOutput])
+            lastEncoderStandaloneOutput = layer(
+                [encoderStandaloneBypass[i - j + 1], lastEncoderStandaloneOutput]
+            )
+            j *= 2
     encoderReshape0 = tf.keras.layers.Reshape(target_shape=(None, maxLen * dModel))(
         lastEncoderOutput
     )
@@ -497,6 +509,8 @@ def useExtendedTransformer(
     decoderMiddleLayerStateOutputs = []
     lastDecoderOutput = decoderReshape1
     lastDecoderStandaloneOutput = decoderStandaloneRNNInput
+    decoderBypass = []
+    decoderStandaloneBypass = []
     for i in range(layers):
         decoderMaskedMultiHeadAttentionConcatterLayer = MultiHeadAttentionConcatter()
         decoderMaskedMultiHeadAttentionConcatter = (
@@ -667,7 +681,18 @@ def useExtendedTransformer(
         decoderStandaloneNorm3 = decoderNormLayer3(decoderStandaloneAdd3)
         lastDecoderOutput = decoderNorm3
         lastDecoderStandaloneOutput = decoderStandaloneNorm3
-
+        decoderBypass.append(lastDecoderOutput)
+        decoderStandaloneBypass.append(lastDecoderStandaloneOutput)
+        lastDecoderOutput = decoderNorm2
+        lastDecoderStandaloneOutput = decoderStandaloneNorm2
+        j = 1
+        while (i + 1) % j == 0:
+            layer = tf.keras.layers.Add()
+            lastDecoderOutput = layer([decoderBypass[i - j + 1], lastDecoderOutput])
+            lastDecoderStandaloneOutput = layer(
+                [decoderStandaloneBypass[i - j + 1], lastDecoderStandaloneOutput]
+            )
+            j *= 2
     decoderDenseLayer = tf.keras.layers.TimeDistributed(
         layer=tf.keras.layers.Dense(
             units=depthTarget,
@@ -802,7 +827,7 @@ def loader():
         )
 
 
-epochOffset = 128
+epochOffset = 1
 
 
 class Callback(tf.keras.callbacks.Callback):
@@ -913,15 +938,15 @@ def predict():
                 tf.reshape(positionalEncoding(maxLen, 32), (1, maxLen, 32)),
             )
         )
-        decoderOutput = tf.argmax(decoderLayerOutput[0], 2)
+        decoderOutput = tf.argmax(decoderLayerOutput[0], 3)
         decoderArgmax = tf.reshape(decoderOutput[0], (-1,))
         print(num2char[decoderArgmax[i]], end="")
         outputs.append(decoderArgmax[i].numpy())
 
 
-with open("./weights/weight-127.jsonl") as f:
-    weights = load("".join(f.readlines()))
-models["trainer"].set_weights(weights)
+# with open("./weights/weight-199.jsonl") as f:
+#     weights = load("".join(f.readlines()))
+# models["trainer"].set_weights(weights)
 if toTrain:
     train()
 else:
