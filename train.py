@@ -164,7 +164,7 @@ class RNNMultiHeadAttentionCell(tf.keras.Model):
             ),
             [batchSize, -1],
         )
-        state = self.activation1(ret)
+        state = self.activation1(state)
         state = self.add01(
             [
                 tf.reshape(value, (batchSize, -1)),
