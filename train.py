@@ -6,7 +6,7 @@ import random
 import pandas as pd
 from functools import reduce
 
-batchSize = 16
+batchSize = 64
 
 
 def save(model):
@@ -118,13 +118,26 @@ class RNNMultiHeadAttentionCell(tf.keras.Model):
         self.dense1 = tf.keras.layers.Dense(units=self.state_size, activation="linear")
         self.add1 = tf.keras.layers.Add()
         self.norm1 = tf.keras.layers.LayerNormalization()
+        self.attention1 = CustomizedMultiHeadAttention(
+            use_causal_mask=use_causal_mask, num_heads=numHeads, key_dim=keyDim
+        )
+        self.activation1 = tf.keras.layers.Activation("sigmoid")
+        self.add01 = tf.keras.layers.Add()
+        self.norm01 = tf.keras.layers.LayerNormalization()
+        self.dense01 = tf.keras.layers.Dense(
+            units=self.state_size, activation="sigmoid"
+        )
+        self.dense11 = tf.keras.layers.Dense(units=self.state_size, activation="linear")
+        self.add11 = tf.keras.layers.Add()
+        self.norm11 = tf.keras.layers.LayerNormalization()
 
     def call(self, *inputs):
         batchSize = inputs[0].shape[0]
+        query = tf.reshape(inputs[1], [batchSize, self.maxLen, -1])
         value = tf.reshape(inputs[0], [batchSize, self.maxLen, -1])
         ret = tf.reshape(
             self.attention.call(
-                tf.reshape(inputs[1], [batchSize, self.maxLen, -1]),
+                query,
                 value=value,
             ),
             [batchSize, -1],
@@ -133,7 +146,7 @@ class RNNMultiHeadAttentionCell(tf.keras.Model):
         ret = self.add0(
             [
                 tf.reshape(value, (batchSize, -1)),
-                tf.reshape(inputs[1], (batchSize, -1)),
+                tf.reshape(query, (batchSize, -1)),
                 ret,
             ]
         )
@@ -143,7 +156,29 @@ class RNNMultiHeadAttentionCell(tf.keras.Model):
         ret = self.dense1(ret)
         ret = self.add1([attnOut, ret])
         ret = self.norm1(ret)
-        return [ret, ret]
+
+        state = tf.reshape(
+            self.attention1.call(
+                query,
+                value=value,
+            ),
+            [batchSize, -1],
+        )
+        state = self.activation1(ret)
+        state = self.add01(
+            [
+                tf.reshape(value, (batchSize, -1)),
+                tf.reshape(query, (batchSize, -1)),
+                state,
+            ]
+        )
+        state = self.norm01(state)
+        attnOut = state
+        state = self.dense01(state)
+        state = self.dense11(state)
+        state = self.add11([attnOut, state])
+        state = self.norm11(state)
+        return [ret, state]
 
     def build(self, inputShape):
         super().build(inputShape)
@@ -663,17 +698,17 @@ with open("./tokens.json") as f:
     tokens = json.loads("".join(f.readlines()))
 depth = len(num2char)
 maxLen = 8
-toTrain = False
+toTrain = True
 models = useExtendedTransformer(
-    32,
-    64,
+    8,
+    16,
     0.2,
-    4,
+    2,
     maxLen,
     depth,
     depth,
     depth,
-    4,
+    2,
 )
 models["trainer"].summary()
 tf.keras.utils.plot_model(models["trainer"], "model.png", show_shapes=True)
@@ -746,7 +781,7 @@ def loader():
         )
 
 
-epochOffset = 211
+epochOffset = 0
 
 
 class Callback(tf.keras.callbacks.Callback):
@@ -863,9 +898,9 @@ def predict():
         outputs.append(decoderArgmax[i].numpy())
 
 
-with open("./weights/weight-323.jsonl") as f:
-    weights = load("".join(f.readlines()))
-models["trainer"].set_weights(weights)
+# with open("./weights/weight-323.jsonl") as f:
+#     weights = load("".join(f.readlines()))
+# models["trainer"].set_weights(weights)
 if toTrain:
     train()
 else:
