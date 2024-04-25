@@ -817,7 +817,7 @@ def train():
         tf.data.Dataset.from_generator(
             loader, output_types=(("float32", "float32"), "float32")
         ),
-        epochs=512,
+        epochs=150,
         steps_per_epoch=32,
         validation_data=tf.data.Dataset.from_generator(
             loader, output_types=(("float32", "float32"), "float32")
