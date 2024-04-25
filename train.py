@@ -203,6 +203,27 @@ class RNNMultiHeadAttentionCell(tf.keras.Model):
         )
         self.norm1.build([inputShape[0], self.state_size])
         self.activation.build([inputShape[0], self.state_size])
+        self.attention1.build(
+            [
+                [inputShape[0], self.maxLen, inputShape[1] // self.maxLen],
+                [inputShape[0], self.maxLen, inputShape[1] // self.maxLen],
+            ]
+        )
+        self.dense01.build([inputShape[0], self.state_size])
+        self.dense11.build([inputShape[0], self.state_size])
+        self.add01.build(
+            [
+                [inputShape[0], self.state_size],
+                [inputShape[0], self.state_size],
+                [inputShape[0], self.state_size],
+            ]
+        )
+        self.norm01.build([inputShape[0], self.state_size])
+        self.add11.build(
+            [[inputShape[0], self.state_size], [inputShape[0], self.state_size]]
+        )
+        self.norm11.build([inputShape[0], self.state_size])
+        self.activation1.build([inputShape[0], self.state_size])
 
 
 class RNNMultiHeadAttention(tf.keras.layers.RNN):
