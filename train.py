@@ -6,7 +6,7 @@ import random
 import pandas as pd
 from functools import reduce
 
-batchSize = 64
+batchSize = 16
 
 
 def save(model):
@@ -721,15 +721,15 @@ depth = len(num2char)
 maxLen = 8
 toTrain = True
 models = useExtendedTransformer(
-    8,
-    16,
+    32,
+    64,
     0.2,
-    2,
+    4,
     maxLen,
     depth,
     depth,
     depth,
-    2,
+    4,
 )
 models["trainer"].summary()
 tf.keras.utils.plot_model(models["trainer"], "model.png", show_shapes=True)
