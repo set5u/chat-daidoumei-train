@@ -744,7 +744,7 @@ with open("./tokens.json") as f:
     tokens = json.loads("".join(f.readlines()))
 depth = len(num2char)
 maxLen = 8
-toTrain = True
+toTrain = False
 models = useExtendedTransformer(
     32,
     64,
@@ -945,9 +945,9 @@ def predict():
         outputs.append(decoderArgmax[i].numpy())
 
 
-# with open("./weights/weight-199.jsonl") as f:
-#     weights = load("".join(f.readlines()))
-# models["trainer"].set_weights(weights)
+with open("./weights/weight-1.jsonl") as f:
+    weights = load("".join(f.readlines()))
+models["trainer"].set_weights(weights)
 if toTrain:
     train()
 else:
