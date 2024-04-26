@@ -103,142 +103,142 @@ class CustomizedMultiHeadAttention(tf.keras.layers.MultiHeadAttention):
         return shape
 
 
-class RNNMultiHeadAttentionCell(tf.keras.Model):
-    def __init__(self, numHeads, keyDim, maxLen, use_causal_mask=False):
-        super().__init__()
-        self.maxLen = maxLen
-        self.state_size = keyDim * numHeads * maxLen
-        self.attention = CustomizedMultiHeadAttention(
-            use_causal_mask=use_causal_mask, num_heads=numHeads, key_dim=keyDim
-        )
-        self.activation = tf.keras.layers.Activation("sigmoid")
-        self.add0 = tf.keras.layers.Add()
-        self.norm0 = tf.keras.layers.LayerNormalization()
-        self.dense0 = tf.keras.layers.Dense(units=self.state_size, activation="sigmoid")
-        self.dense1 = tf.keras.layers.Dense(units=self.state_size, activation="linear")
-        self.add1 = tf.keras.layers.Add()
-        self.norm1 = tf.keras.layers.LayerNormalization()
-        self.attention1 = CustomizedMultiHeadAttention(
-            use_causal_mask=use_causal_mask, num_heads=numHeads, key_dim=keyDim
-        )
-        self.activation1 = tf.keras.layers.Activation("sigmoid")
-        self.add01 = tf.keras.layers.Add()
-        self.norm01 = tf.keras.layers.LayerNormalization()
-        self.dense01 = tf.keras.layers.Dense(
-            units=self.state_size, activation="sigmoid"
-        )
-        self.dense11 = tf.keras.layers.Dense(units=self.state_size, activation="linear")
-        self.add11 = tf.keras.layers.Add()
-        self.norm11 = tf.keras.layers.LayerNormalization()
+# class RNNMultiHeadAttentionCell(tf.keras.Model):
+#     def __init__(self, numHeads, keyDim, maxLen, use_causal_mask=False):
+#         super().__init__()
+#         self.maxLen = maxLen
+#         self.state_size = keyDim * numHeads * maxLen
+#         self.attention = CustomizedMultiHeadAttention(
+#             use_causal_mask=use_causal_mask, num_heads=numHeads, key_dim=keyDim
+#         )
+#         self.activation = tf.keras.layers.Activation("sigmoid")
+#         self.add0 = tf.keras.layers.Add()
+#         self.norm0 = tf.keras.layers.LayerNormalization()
+#         self.dense0 = tf.keras.layers.Dense(units=self.state_size, activation="sigmoid")
+#         self.dense1 = tf.keras.layers.Dense(units=self.state_size, activation="linear")
+#         self.add1 = tf.keras.layers.Add()
+#         self.norm1 = tf.keras.layers.LayerNormalization()
+#         self.attention1 = CustomizedMultiHeadAttention(
+#             use_causal_mask=use_causal_mask, num_heads=numHeads, key_dim=keyDim
+#         )
+#         self.activation1 = tf.keras.layers.Activation("sigmoid")
+#         self.add01 = tf.keras.layers.Add()
+#         self.norm01 = tf.keras.layers.LayerNormalization()
+#         self.dense01 = tf.keras.layers.Dense(
+#             units=self.state_size, activation="sigmoid"
+#         )
+#         self.dense11 = tf.keras.layers.Dense(units=self.state_size, activation="linear")
+#         self.add11 = tf.keras.layers.Add()
+#         self.norm11 = tf.keras.layers.LayerNormalization()
 
-    def call(self, *inputs):
-        batchSize = inputs[0].shape[0]
-        query = tf.reshape(inputs[1], [batchSize, self.maxLen, -1])
-        value = tf.reshape(inputs[0], [batchSize, self.maxLen, -1])
-        ret = tf.reshape(
-            self.attention.call(
-                query,
-                value=value,
-            ),
-            [batchSize, -1],
-        )
-        ret = self.activation(ret)
-        ret = self.add0(
-            [
-                tf.reshape(value, (batchSize, -1)),
-                tf.reshape(query, (batchSize, -1)),
-                ret,
-            ]
-        )
-        ret = self.norm0(ret)
-        attnOut = ret
-        ret = self.dense0(ret)
-        ret = self.dense1(ret)
-        ret = self.add1([attnOut, ret])
-        ret = self.norm1(ret)
+#     def call(self, *inputs):
+#         batchSize = inputs[0].shape[0]
+#         query = tf.reshape(inputs[1], [batchSize, self.maxLen, -1])
+#         value = tf.reshape(inputs[0], [batchSize, self.maxLen, -1])
+#         ret = tf.reshape(
+#             self.attention.call(
+#                 query,
+#                 value=value,
+#             ),
+#             [batchSize, -1],
+#         )
+#         ret = self.activation(ret)
+#         ret = self.add0(
+#             [
+#                 tf.reshape(value, (batchSize, -1)),
+#                 tf.reshape(query, (batchSize, -1)),
+#                 ret,
+#             ]
+#         )
+#         ret = self.norm0(ret)
+#         attnOut = ret
+#         ret = self.dense0(ret)
+#         ret = self.dense1(ret)
+#         ret = self.add1([attnOut, ret])
+#         ret = self.norm1(ret)
 
-        state = tf.reshape(
-            self.attention1.call(
-                query,
-                value=value,
-            ),
-            [batchSize, -1],
-        )
-        state = self.activation1(state)
-        state = self.add01(
-            [
-                tf.reshape(value, (batchSize, -1)),
-                tf.reshape(query, (batchSize, -1)),
-                state,
-            ]
-        )
-        state = self.norm01(state)
-        attnOut = state
-        state = self.dense01(state)
-        state = self.dense11(state)
-        state = self.add11([attnOut, state])
-        state = self.norm11(state)
-        return [ret, state]
+#         state = tf.reshape(
+#             self.attention1.call(
+#                 query,
+#                 value=value,
+#             ),
+#             [batchSize, -1],
+#         )
+#         state = self.activation1(state)
+#         state = self.add01(
+#             [
+#                 tf.reshape(value, (batchSize, -1)),
+#                 tf.reshape(query, (batchSize, -1)),
+#                 state,
+#             ]
+#         )
+#         state = self.norm01(state)
+#         attnOut = state
+#         state = self.dense01(state)
+#         state = self.dense11(state)
+#         state = self.add11([attnOut, state])
+#         state = self.norm11(state)
+#         return [ret, state]
 
-    def build(self, inputShape):
-        super().build(inputShape)
-        self.attention.build(
-            [
-                [inputShape[0], self.maxLen, inputShape[1] // self.maxLen],
-                [inputShape[0], self.maxLen, inputShape[1] // self.maxLen],
-            ]
-        )
-        self.dense0.build([inputShape[0], self.state_size])
-        self.dense1.build([inputShape[0], self.state_size])
-        self.add0.build(
-            [
-                [inputShape[0], self.state_size],
-                [inputShape[0], self.state_size],
-                [inputShape[0], self.state_size],
-            ]
-        )
-        self.norm0.build([inputShape[0], self.state_size])
-        self.add1.build(
-            [[inputShape[0], self.state_size], [inputShape[0], self.state_size]]
-        )
-        self.norm1.build([inputShape[0], self.state_size])
-        self.activation.build([inputShape[0], self.state_size])
-        self.attention1.build(
-            [
-                [inputShape[0], self.maxLen, inputShape[1] // self.maxLen],
-                [inputShape[0], self.maxLen, inputShape[1] // self.maxLen],
-            ]
-        )
-        self.dense01.build([inputShape[0], self.state_size])
-        self.dense11.build([inputShape[0], self.state_size])
-        self.add01.build(
-            [
-                [inputShape[0], self.state_size],
-                [inputShape[0], self.state_size],
-                [inputShape[0], self.state_size],
-            ]
-        )
-        self.norm01.build([inputShape[0], self.state_size])
-        self.add11.build(
-            [[inputShape[0], self.state_size], [inputShape[0], self.state_size]]
-        )
-        self.norm11.build([inputShape[0], self.state_size])
-        self.activation1.build([inputShape[0], self.state_size])
+#     def build(self, inputShape):
+#         super().build(inputShape)
+#         self.attention.build(
+#             [
+#                 [inputShape[0], self.maxLen, inputShape[1] // self.maxLen],
+#                 [inputShape[0], self.maxLen, inputShape[1] // self.maxLen],
+#             ]
+#         )
+#         self.dense0.build([inputShape[0], self.state_size])
+#         self.dense1.build([inputShape[0], self.state_size])
+#         self.add0.build(
+#             [
+#                 [inputShape[0], self.state_size],
+#                 [inputShape[0], self.state_size],
+#                 [inputShape[0], self.state_size],
+#             ]
+#         )
+#         self.norm0.build([inputShape[0], self.state_size])
+#         self.add1.build(
+#             [[inputShape[0], self.state_size], [inputShape[0], self.state_size]]
+#         )
+#         self.norm1.build([inputShape[0], self.state_size])
+#         self.activation.build([inputShape[0], self.state_size])
+#         self.attention1.build(
+#             [
+#                 [inputShape[0], self.maxLen, inputShape[1] // self.maxLen],
+#                 [inputShape[0], self.maxLen, inputShape[1] // self.maxLen],
+#             ]
+#         )
+#         self.dense01.build([inputShape[0], self.state_size])
+#         self.dense11.build([inputShape[0], self.state_size])
+#         self.add01.build(
+#             [
+#                 [inputShape[0], self.state_size],
+#                 [inputShape[0], self.state_size],
+#                 [inputShape[0], self.state_size],
+#             ]
+#         )
+#         self.norm01.build([inputShape[0], self.state_size])
+#         self.add11.build(
+#             [[inputShape[0], self.state_size], [inputShape[0], self.state_size]]
+#         )
+#         self.norm11.build([inputShape[0], self.state_size])
+#         self.activation1.build([inputShape[0], self.state_size])
 
 
-class RNNMultiHeadAttention(tf.keras.layers.RNN):
-    def __init__(self, length, depth, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.length = length
-        self.depth = depth
+# class RNNMultiHeadAttention(tf.keras.layers.RNN):
+#     def __init__(self, length, depth, *args, **kwargs):
+#         super().__init__(*args, **kwargs)
+#         self.length = length
+#         self.depth = depth
 
-    def get_initial_state(self, batch_size):
-        return tf.tile(
-            tf.reshape(positionalEncoding(self.length, self.depth), (-1,))[
-                tf.newaxis, :
-            ],
-            (batch_size, 1),
-        )
+#     def get_initial_state(self, batch_size):
+#         return tf.tile(
+#             tf.reshape(positionalEncoding(self.length, self.depth), (-1,))[
+#                 tf.newaxis, :
+#             ],
+#             (batch_size, 1),
+#         )
 
 
 class MultiHeadAttentionConcatter(tf.keras.Model):
@@ -395,22 +395,21 @@ def useExtendedTransformer(
         encoderStandaloneMiddleReshape0 = encoderMiddleReshapeLayer0(
             encoderStandaloneNorm1
         )
-        encoderMiddleRNNLayer = RNNMultiHeadAttention(
-            cell=RNNMultiHeadAttentionCell(h, dModel // h, maxLen),
-            return_sequences=True,
-            length=maxLen,
-            depth=dModel,
+        encoderMiddleRNNLayer = tf.keras.layers.GRU(
+            maxLen * dModel, return_sequences=True, return_state=True
         )
         encoderMiddleRNNInitialStateInput = tf.keras.layers.Input(
             shape=(maxLen, dModel)
         )
         encoderMiddleLayerStateInputs.append(encoderMiddleRNNInitialStateInput)
-        encoderMiddleRNN = encoderMiddleRNNLayer(encoderMiddleReshape0)
-        encoderStandaloneMiddleRNN = encoderMiddleRNNLayer(
-            encoderStandaloneMiddleReshape0,
-            initial_state=encoderMiddleRNNInitialStateInput,
+        encoderMiddleRNN, _ = encoderMiddleRNNLayer(encoderMiddleReshape0)
+        encoderStandaloneMiddleRNN, encoderStandaloneMiddleRNNState = (
+            encoderMiddleRNNLayer(
+                encoderStandaloneMiddleReshape0,
+                initial_state=encoderMiddleRNNInitialStateInput,
+            )
         )
-        encoderMiddleLayerStateOutputs.append(encoderStandaloneMiddleRNN)
+        encoderMiddleLayerStateOutputs.append(encoderStandaloneMiddleRNNState)
         encoderMiddleReshapeLayer1 = tf.keras.layers.Reshape(
             target_shape=(None, maxLen, dModel)
         )
@@ -443,12 +442,8 @@ def useExtendedTransformer(
     encoderReshape0 = tf.keras.layers.Reshape(target_shape=(None, maxLen * dModel))(
         lastEncoderOutput
     )
-    encoderRNNLayer = RNNMultiHeadAttention(
-        cell=RNNMultiHeadAttentionCell(h, dModel // h, maxLen),
-        length=maxLen,
-        depth=dModel,
-    )
-    encoderRNN = encoderRNNLayer(encoderReshape0)
+    encoderRNNLayer = tf.keras.layers.GRU(maxLen * dModel, return_state=True)
+    encoderRNN, _ = encoderRNNLayer(encoderReshape0)
     encoderReshape1 = tf.keras.layers.Reshape(target_shape=(maxLen, dModel))(encoderRNN)
     decoderInput = tf.keras.Input(shape=(None, maxLen))
     decoderStandaloneInput = tf.keras.Input(shape=(None, maxLen, dModel))
@@ -482,13 +477,10 @@ def useExtendedTransformer(
     decoderReshape0 = tf.keras.layers.Reshape(target_shape=(None, maxLen * dModel))(
         decoderPositionalEncoding
     )
-    decoderRNNLayer = RNNMultiHeadAttention(
-        cell=RNNMultiHeadAttentionCell(h, dModel // h, maxLen, use_causal_mask=True),
-        return_sequences=True,
-        length=maxLen,
-        depth=dModel,
+    decoderRNNLayer = tf.keras.layers.GRU(
+        maxLen * dModel, return_sequences=True, return_state=True
     )
-    decoderRNN = decoderRNNLayer(decoderReshape0)
+    decoderRNN, _ = decoderRNNLayer(decoderReshape0)
     decoderReshape1 = tf.keras.layers.Reshape(target_shape=(None, maxLen, dModel))(
         decoderRNN
     )
@@ -496,13 +488,10 @@ def useExtendedTransformer(
     decoderReshape2 = decoderReshape2Layer(encoderReshape1)
     tilerLayer = RNNTiler()
     tiler = tilerLayer(decoderReshape2, decoderInput)
-    bridgeRNNLayer = RNNMultiHeadAttention(
-        cell=RNNMultiHeadAttentionCell(h, dModel // h, maxLen),
-        return_sequences=True,
-        length=maxLen,
-        depth=dModel,
+    bridgeRNNLayer = tf.keras.layers.GRU(
+        maxLen * dModel, return_sequences=True, return_state=True
     )
-    bridgeRNN = bridgeRNNLayer(tiler)
+    bridgeRNN, _ = bridgeRNNLayer(tiler)
     decoderReshape3Layer = tf.keras.layers.Reshape(target_shape=(None, maxLen, dModel))
     decoderReshape3 = decoderReshape3Layer(bridgeRNN)
     decoderMiddleLayerStateInputs = []
@@ -527,8 +516,7 @@ def useExtendedTransformer(
         )
         decoderMaskedMultiHeadAttentionLayer = tf.keras.layers.TimeDistributed(
             layer=CustomizedMultiHeadAttention(
-                num_heads=h,
-                key_dim=dModel // h,
+                num_heads=h, key_dim=dModel // h, use_causal_mask=True
             ),
         )
         decoderMaskedMultiHeadAttention = decoderMaskedMultiHeadAttentionLayer(
@@ -646,22 +634,21 @@ def useExtendedTransformer(
         decoderStandaloneMiddleReshape0 = decoderMiddleReshapeLayer0(
             decoderStandaloneNorm2
         )
-        decoderMiddleRNNLayer = RNNMultiHeadAttention(
-            cell=RNNMultiHeadAttentionCell(h, dModel // h, maxLen),
-            return_sequences=True,
-            length=maxLen,
-            depth=dModel,
+        decoderMiddleRNNLayer = tf.keras.layers.GRU(
+            maxLen * dModel, return_sequences=True, return_state=True
         )
         decoderMiddleRNNInitialStateInput = tf.keras.layers.Input(
             shape=(maxLen, dModel)
         )
         decoderMiddleLayerStateInputs.append(decoderMiddleRNNInitialStateInput)
-        decoderMiddleRNN = decoderMiddleRNNLayer(decoderMiddleReshape0)
-        decoderStandaloneMiddleRNN = decoderMiddleRNNLayer(
-            decoderStandaloneMiddleReshape0,
-            initial_state=decoderMiddleRNNInitialStateInput,
+        decoderMiddleRNN, _ = decoderMiddleRNNLayer(decoderMiddleReshape0)
+        decoderStandaloneMiddleRNN, decoderStandaloneMiddleRNNState = (
+            decoderMiddleRNNLayer(
+                decoderStandaloneMiddleReshape0,
+                initial_state=decoderMiddleRNNInitialStateInput,
+            )
         )
-        decoderMiddleLayerStateOutputs.append(decoderStandaloneMiddleRNN)
+        decoderMiddleLayerStateOutputs.append(decoderStandaloneMiddleRNNState)
         decoderMiddleReshapeLayer1 = tf.keras.layers.Reshape(
             target_shape=(None, maxLen, dModel)
         )
