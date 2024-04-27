@@ -474,16 +474,16 @@ def useExtendedTransformer(
     decoderPositionalEncoding = tf.keras.layers.Add()(
         [decoderEmbedding, decoderConstantPositionalEncoding]
     )
-    decoderReshape0 = tf.keras.layers.Reshape(target_shape=(None, maxLen * dModel))(
-        decoderPositionalEncoding
-    )
-    decoderRNNLayer = tf.keras.layers.GRU(
-        maxLen * dModel, return_sequences=True, return_state=True
-    )
-    decoderRNN, _ = decoderRNNLayer(decoderReshape0)
-    decoderReshape1 = tf.keras.layers.Reshape(target_shape=(None, maxLen, dModel))(
-        decoderRNN
-    )
+    # decoderReshape0 = tf.keras.layers.Reshape(target_shape=(None, maxLen * dModel))(
+    #     decoderPositionalEncoding
+    # )
+    # decoderRNNLayer = tf.keras.layers.GRU(
+    #     maxLen * dModel, return_sequences=True, return_state=True
+    # )
+    # decoderRNN, _ = decoderRNNLayer(decoderReshape0)
+    # decoderReshape1 = tf.keras.layers.Reshape(target_shape=(None, maxLen, dModel))(
+    #     decoderRNN
+    # )
     decoderReshape2Layer = tf.keras.layers.Reshape(target_shape=(1, maxLen * dModel))
     decoderReshape2 = decoderReshape2Layer(encoderReshape1)
     tilerLayer = RNNTiler()
@@ -496,7 +496,7 @@ def useExtendedTransformer(
     decoderReshape3 = decoderReshape3Layer(bridgeRNN)
     decoderMiddleLayerStateInputs = []
     decoderMiddleLayerStateOutputs = []
-    lastDecoderOutput = decoderReshape1
+    lastDecoderOutput = decoderPositionalEncoding
     lastDecoderStandaloneOutput = decoderStandaloneRNNInput
     decoderBypass = []
     decoderStandaloneBypass = []
@@ -718,7 +718,6 @@ def useExtendedTransformer(
         "decoder": decoder,
         "encoderRNNLayer": encoderRNNLayer,
         "bridgeRNNLayer": bridgeRNNLayer,
-        "decoderRNNLayer": decoderRNNLayer,
         "decoderEmbeddingLayer": decoderEmbeddingLayer,
     }
 
@@ -918,14 +917,6 @@ def predict():
             positionalEncoding(maxLen, 32)[tf.newaxis, tf.newaxis, :, :],
             (batchSize, len(decoderInput[0]), 1, 1),
         )
-        decoderRNNOutput = tf.reshape(
-            models["decoderRNNLayer"](
-                tf.reshape(
-                    decoderPositionalEncodingOutput, (batchSize, -1, maxLen * 32)
-                )
-            )[0],
-            (batchSize, -1, maxLen, 32),
-        )
         bridgeRNNOutput = tf.reshape(
             models["bridgeRNNLayer"](
                 tf.tile(
@@ -937,7 +928,7 @@ def predict():
         )
         decoderLayerOutput = models["decoder"](
             (
-                decoderRNNOutput,
+                decoderPositionalEncodingOutput,
                 tf.minimum(decoderInput, tf.ones_like(decoderInput)),
                 bridgeRNNOutput,
                 tf.zeros(
@@ -972,9 +963,9 @@ def predict():
         outputs.append(decoderArgmax[i].numpy())
 
 
-with open("./weights/weight-1.jsonl") as f:
-    weights = load("".join(f.readlines()))
-models["trainer"].set_weights(weights)
+# with open("./weights/weight-1.jsonl") as f:
+#     weights = load("".join(f.readlines()))
+# models["trainer"].set_weights(weights)
 if toTrain:
     train()
 else:
