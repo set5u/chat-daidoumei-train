@@ -4,6 +4,8 @@ import numpy as np
 import math
 
 batchSize = 16
+encoderRecurrent = None
+decoderRecurrent = None
 
 
 def save(model):
@@ -50,7 +52,7 @@ def positionalEncoding(length, depth):
                 if j % 2
                 else math.cos(i / 10000 ** (j / depth))
             )
-    return np.array(ret)
+    return tf.constant(ret)
 
 
 class RNNTiler(tf.keras.Model):
@@ -58,7 +60,7 @@ class RNNTiler(tf.keras.Model):
         return tf.tile(inputs[0], (1, inputs[1].shape[1], 1))
 
     def compute_output_shape(self, inputShape):
-        return inputShape[0][0:1] + (None,) + inputShape[0][2:]
+        return inputShape[0][0:1] + (decoderRecurrent,) + inputShape[0][2:]
 
 
 class AddNorm(tf.keras.Model):
@@ -221,10 +223,6 @@ class MiddleLayer(tf.keras.Model):
         return input_shapes[0], input_shapes[0][:2] + (self.dModelLen,)
 
 
-encoderRecurrent = None
-decoderRecurrent = None
-
-
 def useExtendedTransformer(
     dModel,
     dFF,
@@ -304,6 +302,40 @@ def useExtendedTransformer(
         return_state=True,
     )(encoderReshape2)
     encoderReshape3 = tf.keras.layers.Reshape(target_shape=(maxLen, dModel))(encoderRNN)
+    decoderInput = tf.keras.Input(shape=(decoderRecurrent, maxLen))
+    decoderStandaloneInput = tf.keras.Input(shape=(decoderRecurrent, maxLen, dModel))
+    decoderStandaloneRNNInput = tf.keras.Input(
+        shape=(decoderRecurrent, maxLen, dModel),
+    )
+    decoderStandaloneMaskInput = tf.keras.Input(
+        shape=(decoderRecurrent, maxLen),
+    )
+    decoderOnes = tf.keras.layers.Dense(
+        units=maxLen,
+        kernel_initializer="zeros",
+        bias_initializer="ones",
+        trainable=False,
+    )(decoderInput)
+    decoderAttentionMask = tf.keras.layers.Minimum()((decoderInput, decoderOnes))
+    decoderEmbeddingLayer = tf.keras.layers.TimeDistributed(
+        layer=tf.keras.layers.Embedding(
+            input_dim=depthDecoder,
+            output_dim=dModel,
+            # mask_zero=True,
+        ),
+    )
+    decoderEmbedding = decoderEmbeddingLayer(decoderInput)
+    decoderPositionalEncoding = decoderEmbedding + positionalEncoding(maxLen, dModel)
+    decoderReshape0Layer = tf.keras.layers.Reshape(target_shape=(1, maxLen * dModel))
+    decoderReshape0 = decoderReshape0Layer(encoderReshape3)
+    tiler = RNNTiler()(decoderReshape0, decoderInput)
+    bridgeRNN, _ = MiddleLayer(h, dModel // h, maxLen)(tiler)
+    decoderMiddleLayerStateInputs = []
+    decoderMiddleLayerStateOutputs = []
+    lastDecoderOutput = decoderPositionalEncoding
+    lastDecoderStandaloneOutput = decoderStandaloneRNNInput
+    decoderBypass = []
+    decoderStandaloneBypass = []
     tf.keras.Model(inputs=encoderInput, outputs=encoderReshape3).summary()
 
 
