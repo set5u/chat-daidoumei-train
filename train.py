@@ -56,224 +56,6 @@ def positionalEncoding(length, depth):
     return np.array(ret)
 
 
-class CustomizedMultiHeadAttention(tf.keras.layers.MultiHeadAttention):
-    def __init__(self, use_causal_mask=False, *args, **kwargs):
-        if len(args) != 0:
-            raise
-        super().__init__(*args, **kwargs)
-        self.use_causal_mask = use_causal_mask
-
-    def build(self, input_shape):
-        shape = (
-            input_shape[0]
-            if isinstance(input_shape[0], list)
-            else input_shape[0:1] + input_shape[2:]
-        )
-        super().build(shape, value_shape=shape)
-        self.built = True
-
-    def call(self, inputs, **kwargs):
-        if len(inputs.shape) == 4:
-            buffer = tf.unstack(tf.transpose(inputs, [1, 0, 2, 3]))
-            inputs = buffer[0]
-            value = buffer[1]
-            _a = tf.unstack(buffer[2], None, 2)[0] if len(buffer) == 3 else None
-            attentionMask = (
-                None
-                if _a is not None
-                else np.tile(
-                    np.tile(_a[:, :, np.newaxis], [1, 1, buffer[2].shape[1]])[
-                        :, np.newaxis, :, :
-                    ],
-                    (1, self.numHeads, 1, 1),
-                )
-            )
-            return super().call(
-                inputs,
-                value=value,
-                attention_mask=attentionMask,
-                use_causal_mask=self.use_causal_mask,
-            )
-        return super().call(inputs, **kwargs, use_causal_mask=self.use_causal_mask)
-
-    def compute_output_shape(self, inputShape):
-        shape = inputShape[0:1] + inputShape[2:]
-        if self.output_shape is not None:
-            return shape[0:-1].concat(self.output_shape)
-        return shape
-
-
-# class RNNMultiHeadAttentionCell(tf.keras.Model):
-#     def __init__(self, numHeads, keyDim, maxLen, use_causal_mask=False):
-#         super().__init__()
-#         self.maxLen = maxLen
-#         self.state_size = keyDim * numHeads * maxLen
-#         self.attention = CustomizedMultiHeadAttention(
-#             use_causal_mask=use_causal_mask, num_heads=numHeads, key_dim=keyDim
-#         )
-#         self.activation = tf.keras.layers.Activation("sigmoid")
-#         self.add0 = tf.keras.layers.Add()
-#         self.norm0 = tf.keras.layers.LayerNormalization()
-#         self.dense0 = tf.keras.layers.Dense(units=self.state_size, activation="sigmoid")
-#         self.dense1 = tf.keras.layers.Dense(units=self.state_size, activation="linear")
-#         self.add1 = tf.keras.layers.Add()
-#         self.norm1 = tf.keras.layers.LayerNormalization()
-#         self.attention1 = CustomizedMultiHeadAttention(
-#             use_causal_mask=use_causal_mask, num_heads=numHeads, key_dim=keyDim
-#         )
-#         self.activation1 = tf.keras.layers.Activation("sigmoid")
-#         self.add01 = tf.keras.layers.Add()
-#         self.norm01 = tf.keras.layers.LayerNormalization()
-#         self.dense01 = tf.keras.layers.Dense(
-#             units=self.state_size, activation="sigmoid"
-#         )
-#         self.dense11 = tf.keras.layers.Dense(units=self.state_size, activation="linear")
-#         self.add11 = tf.keras.layers.Add()
-#         self.norm11 = tf.keras.layers.LayerNormalization()
-
-#     def call(self, *inputs):
-#         batchSize = inputs[0].shape[0]
-#         query = tf.reshape(inputs[1], [batchSize, self.maxLen, -1])
-#         value = tf.reshape(inputs[0], [batchSize, self.maxLen, -1])
-#         ret = tf.reshape(
-#             self.attention.call(
-#                 query,
-#                 value=value,
-#             ),
-#             [batchSize, -1],
-#         )
-#         ret = self.activation(ret)
-#         ret = self.add0(
-#             [
-#                 tf.reshape(value, (batchSize, -1)),
-#                 tf.reshape(query, (batchSize, -1)),
-#                 ret,
-#             ]
-#         )
-#         ret = self.norm0(ret)
-#         attnOut = ret
-#         ret = self.dense0(ret)
-#         ret = self.dense1(ret)
-#         ret = self.add1([attnOut, ret])
-#         ret = self.norm1(ret)
-
-#         state = tf.reshape(
-#             self.attention1.call(
-#                 query,
-#                 value=value,
-#             ),
-#             [batchSize, -1],
-#         )
-#         state = self.activation1(state)
-#         state = self.add01(
-#             [
-#                 tf.reshape(value, (batchSize, -1)),
-#                 tf.reshape(query, (batchSize, -1)),
-#                 state,
-#             ]
-#         )
-#         state = self.norm01(state)
-#         attnOut = state
-#         state = self.dense01(state)
-#         state = self.dense11(state)
-#         state = self.add11([attnOut, state])
-#         state = self.norm11(state)
-#         return [ret, state]
-
-#     def build(self, inputShape):
-#         super().build(inputShape)
-#         self.attention.build(
-#             [
-#                 [inputShape[0], self.maxLen, inputShape[1] // self.maxLen],
-#                 [inputShape[0], self.maxLen, inputShape[1] // self.maxLen],
-#             ]
-#         )
-#         self.dense0.build([inputShape[0], self.state_size])
-#         self.dense1.build([inputShape[0], self.state_size])
-#         self.add0.build(
-#             [
-#                 [inputShape[0], self.state_size],
-#                 [inputShape[0], self.state_size],
-#                 [inputShape[0], self.state_size],
-#             ]
-#         )
-#         self.norm0.build([inputShape[0], self.state_size])
-#         self.add1.build(
-#             [[inputShape[0], self.state_size], [inputShape[0], self.state_size]]
-#         )
-#         self.norm1.build([inputShape[0], self.state_size])
-#         self.activation.build([inputShape[0], self.state_size])
-#         self.attention1.build(
-#             [
-#                 [inputShape[0], self.maxLen, inputShape[1] // self.maxLen],
-#                 [inputShape[0], self.maxLen, inputShape[1] // self.maxLen],
-#             ]
-#         )
-#         self.dense01.build([inputShape[0], self.state_size])
-#         self.dense11.build([inputShape[0], self.state_size])
-#         self.add01.build(
-#             [
-#                 [inputShape[0], self.state_size],
-#                 [inputShape[0], self.state_size],
-#                 [inputShape[0], self.state_size],
-#             ]
-#         )
-#         self.norm01.build([inputShape[0], self.state_size])
-#         self.add11.build(
-#             [[inputShape[0], self.state_size], [inputShape[0], self.state_size]]
-#         )
-#         self.norm11.build([inputShape[0], self.state_size])
-#         self.activation1.build([inputShape[0], self.state_size])
-
-
-# class RNNMultiHeadAttention(tf.keras.layers.RNN):
-#     def __init__(self, length, depth, *args, **kwargs):
-#         super().__init__(*args, **kwargs)
-#         self.length = length
-#         self.depth = depth
-
-#     def get_initial_state(self, batch_size):
-#         return tf.tile(
-#             tf.reshape(positionalEncoding(self.length, self.depth), (-1,))[
-#                 tf.newaxis, :
-#             ],
-#             (batch_size, 1),
-#         )
-
-
-class MultiHeadAttentionConcatter(tf.keras.Model):
-
-    def call(self, *inputs):
-        query = inputs[0]
-        kv = inputs[1]
-        mask = inputs[2] if len(inputs) == 3 else None
-        dModel = query.shape[len(query.shape) - 1]
-        query = (
-            tf.reshape(
-                query, (query.shape[0],) + query.shape[1:2] + (1,) + query.shape[2:]
-            )
-            if query is not None
-            else query
-        )
-        if reduce(
-            lambda x, y: x * batchSize if y is None else x * y, kv.shape, 1
-        ) != reduce(lambda x, y: x * batchSize if y is None else x * y, query.shape, 1):
-            kv = tf.tile(kv[:, tf.newaxis, :, :], (1, query.shape[1], 1, 1))
-        kv = tf.reshape(kv, query.shape) if kv is not None else query
-        mask = (
-            tf.reshape(
-                tf.tile(mask[:, :, :, tf.newaxis], (1, 1, 1, dModel)), query.shape
-            )
-            if mask is not None
-            else tf.ones(query.shape)
-        )
-        return tf.concat([query, kv, mask], 2)
-
-    def compute_output_shape(self, input_shape):
-        input = input_shape[0] if isinstance(input_shape[0], list) else input_shape
-        return input[0][0:2] + (3,) + input[0][2:]
-
-
 class RNNTiler(tf.keras.Model):
     def call(self, *inputs):
         return tf.tile(inputs[0], (1, inputs[1].shape[1], 1))
@@ -305,7 +87,7 @@ def useExtendedTransformer(
         layer=tf.keras.layers.Embedding(
             input_dim=depthEncoder,
             output_dim=dModel,
-            mask_zero=True,
+            # mask_zero=True,
         ),
     )(encoderInput)
     encoderConstantPositionalEncoding = tf.keras.layers.TimeDistributed(
@@ -321,30 +103,21 @@ def useExtendedTransformer(
     encoderBypass = []
     encoderStandaloneBypass = []
     for i in range(layers):
-        encoderMultiHeadAttentionConcatterLayer = MultiHeadAttentionConcatter()
-        encoderMultiHeadAttentionConcatter = encoderMultiHeadAttentionConcatterLayer(
-            lastEncoderOutput,
-            lastEncoderOutput,
-            encoderAttentionMask,
-        )
-        encoderStandaloneMultiHeadAttentionConcatter = (
-            encoderMultiHeadAttentionConcatterLayer(
-                lastEncoderStandaloneOutput,
-                lastEncoderStandaloneOutput,
-                encoderAttentionMask,
-            )
-        )
         encoderMultiHeadAttentionLayer = tf.keras.layers.TimeDistributed(
-            layer=CustomizedMultiHeadAttention(
+            layer=tf.keras.layers.MultiHeadAttention(
                 num_heads=h,
                 key_dim=dModel // h,
             ),
         )
         encoderMultiHeadAttention = encoderMultiHeadAttentionLayer(
-            encoderMultiHeadAttentionConcatter
+            lastEncoderOutput,
+            lastEncoderOutput,
+            attention_mask=encoderAttentionMask,
         )
         encoderStandaloneMultiHeadAttention = encoderMultiHeadAttentionLayer(
-            encoderStandaloneMultiHeadAttentionConcatter
+            lastEncoderStandaloneOutput,
+            lastEncoderStandaloneOutput,
+            attention_mask=encoderAttentionMask,
         )
         encoderDropoutLayer0 = tf.keras.layers.TimeDistributed(
             layer=tf.keras.layers.Dropout(rate=pDropout),
@@ -464,7 +237,7 @@ def useExtendedTransformer(
         layer=tf.keras.layers.Embedding(
             input_dim=depthDecoder,
             output_dim=dModel,
-            mask_zero=True,
+            # mask_zero=True,
         ),
     )
     decoderEmbedding = decoderEmbeddingLayer(decoderInput)
@@ -501,30 +274,23 @@ def useExtendedTransformer(
     decoderBypass = []
     decoderStandaloneBypass = []
     for i in range(layers):
-        decoderMaskedMultiHeadAttentionConcatterLayer = MultiHeadAttentionConcatter()
-        decoderMaskedMultiHeadAttentionConcatter = (
-            decoderMaskedMultiHeadAttentionConcatterLayer(
-                lastDecoderOutput,
-                lastDecoderOutput,
-            )
-        )
-        decoderStandaloneMaskedMultiHeadAttentionConcatter = (
-            decoderMaskedMultiHeadAttentionConcatterLayer(
-                lastDecoderStandaloneOutput,
-                lastDecoderStandaloneOutput,
-            )
-        )
         decoderMaskedMultiHeadAttentionLayer = tf.keras.layers.TimeDistributed(
-            layer=CustomizedMultiHeadAttention(
-                num_heads=h, key_dim=dModel // h, use_causal_mask=True
+            layer=tf.keras.layers.MultiHeadAttention(
+                num_heads=h, key_dim=dModel // h, use_causal_mask=i == 0
             ),
         )
         decoderMaskedMultiHeadAttention = decoderMaskedMultiHeadAttentionLayer(
-            decoderMaskedMultiHeadAttentionConcatter,
+            lastDecoderOutput,
+            lastDecoderOutput,
+            attention_mask=decoderAttentionMask,
+            use_causal_mask=True,
         )
         decoderStandaloneMaskedMultiHeadAttention = (
             decoderMaskedMultiHeadAttentionLayer(
-                decoderStandaloneMaskedMultiHeadAttentionConcatter,
+                lastDecoderStandaloneOutput,
+                lastDecoderStandaloneOutput,
+                attention_mask=decoderStandaloneMaskInput,
+                use_causal_mask=True,
             )
         )
         decoderDropoutLayer0 = tf.keras.layers.TimeDistributed(
@@ -552,30 +318,21 @@ def useExtendedTransformer(
         )
         decoderNorm0 = decoderNormLayer0(decoderAdd0)
         decoderStandaloneNorm0 = decoderNormLayer0(decoderStandaloneAdd0)
-        decoderMultiHeadAttentionConcatterLayer = MultiHeadAttentionConcatter()
-        decoderMultiHeadAttentionConcatter = decoderMultiHeadAttentionConcatterLayer(
-            decoderNorm0,
-            decoderReshape3,
-            decoderAttentionMask,
-        )
-        decoderStandaloneMultiHeadAttentionConcatter = (
-            decoderMultiHeadAttentionConcatterLayer(
-                decoderStandaloneNorm0,
-                decoderStandaloneInput,
-                decoderStandaloneMaskInput,
-            )
-        )
         decoderMultiHeadAttentionLayer = tf.keras.layers.TimeDistributed(
-            layer=CustomizedMultiHeadAttention(
+            layer=tf.keras.layers.MultiHeadAttention(
                 num_heads=h,
                 key_dim=dModel // h,
             ),
         )
         decoderMultiHeadAttention = decoderMultiHeadAttentionLayer(
-            decoderMultiHeadAttentionConcatter
+            decoderNorm0,
+            decoderReshape3,
+            attention_mask=decoderAttentionMask,
         )
         decoderStandaloneMultiHeadAttention = decoderMultiHeadAttentionLayer(
-            decoderStandaloneMultiHeadAttentionConcatter
+            decoderStandaloneNorm0,
+            decoderStandaloneInput,
+            attention_mask=decoderStandaloneMaskInput,
         )
         decoderDropoutLayer1 = tf.keras.layers.TimeDistributed(
             layer=tf.keras.layers.Dropout(rate=pDropout),
@@ -963,9 +720,12 @@ def predict():
         outputs.append(decoderArgmax[i].numpy())
 
 
-# with open("./weights/weight-1.jsonl") as f:
-#     weights = load("".join(f.readlines()))
-# models["trainer"].set_weights(weights)
+with open("./weights/weight-2.jsonl") as f:
+    weights = load("".join(f.readlines()))
+models["trainer"].set_weights(weights)
+# toSave = save(models["trainer"])
+# with open("./weights/weight-" + str(2) + ".jsonl", "w") as f:
+#     f.write(toSave)
 if toTrain:
     train()
 else:
