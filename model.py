@@ -192,6 +192,39 @@ class AttentionRNNCell(tf.keras.Model):
         return input_shape
 
 
+class MiddleLayer(tf.keras.Model):
+    def __init__(self, h, keyDim, maxLen, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        dModel = h * keyDim
+        self.dModelLen = dModel * maxLen
+        self.reshape0 = tf.keras.layers.Reshape(target_shape=(-1, maxLen * dModel))
+        self.rnn = tf.keras.layers.RNN(
+            AttentionRNNCell(h, dModel // h, maxLen),
+            return_sequences=True,
+            return_state=True,
+        )
+        self.reshape1 = tf.keras.layers.Reshape(target_shape=(-1, maxLen, dModel))
+
+    def build(self, input_shape):
+        computed = input_shape[0:2] + (self.dModelLen,)
+        self.rnn.build(computed)
+
+    def call(self, *inputs):
+        input = inputs[0]
+        initialState = inputs[1] if len(inputs) == 2 else None
+        ret = self.reshape0(input)
+        ret, state = self.rnn(ret, initial_state=initialState)
+        ret = self.reshape1(ret)
+        return ret, state
+
+    def compute_output_shape(self, input_shapes):
+        return input_shapes[0], input_shapes[0][:2] + (self.dModelLen,)
+
+
+encoderRecurrent = None
+decoderRecurrent = None
+
+
 def useExtendedTransformer(
     dModel,
     dFF,
@@ -203,7 +236,7 @@ def useExtendedTransformer(
     depthTarget,
     layers,
 ):
-    encoderInput = tf.keras.Input(shape=[None, maxLen])
+    encoderInput = tf.keras.Input(shape=[encoderRecurrent, maxLen])
     encoderOnes = tf.keras.layers.Dense(
         units=maxLen,
         kernel_initializer="zeros",
@@ -241,42 +274,20 @@ def useExtendedTransformer(
         )
         encoder = encoderLayer(concattedInput)
         encoderStandalone = encoderLayer(concattedStandaloneInput)
-        encoderReshapeLayer0 = tf.keras.layers.Reshape(
-            target_shape=(None, maxLen * dModel)
-        )
-        encoderReshape0 = encoderReshapeLayer0(encoder)
-        encoderStandaloneReshape0 = encoderReshapeLayer0(encoderStandalone)
-        encoderMiddleRNNLayer = tf.keras.layers.RNN(
-            AttentionRNNCell(h, dModel // h, maxLen),
-            return_sequences=True,
-            return_state=True,
-        )
-        encoderMiddleRNN, _ = encoderMiddleRNNLayer(encoderReshape0)
+        encoderMiddleLayer = MiddleLayer(h, dModel // h, maxLen)
+        encoderMiddleRNN, _ = encoderMiddleLayer(encoder)
         encoderMiddleRNNInitialStateInput = tf.keras.layers.Input(
             shape=(maxLen * dModel,)
         )
         encoderMiddleLayerStateInputs.append(encoderMiddleRNNInitialStateInput)
         encoderStandaloneMiddleRNN, encoderStandaloneMiddleRNNState = (
-            encoderMiddleRNNLayer(
-                encoderStandaloneReshape0,
-                initial_state=encoderMiddleRNNInitialStateInput,
-            )
+            encoderMiddleLayer(encoderStandalone, encoderMiddleRNNInitialStateInput)
         )
         encoderMiddleLayerStateOutputs.append(encoderStandaloneMiddleRNNState)
-        encoderReshapeLayer1 = tf.keras.layers.Reshape(
-            target_shape=(None, maxLen, dModel)
-        )
-        encoderReshape1 = encoderReshapeLayer1(encoderMiddleRNN)
-        encoderStandaloneReshape1 = encoderReshapeLayer1(encoderStandaloneMiddleRNN)
-        encoderNormLayer = AddNorm()
-        encoderNorm = encoderNormLayer(encoderReshape1, encoder)
-        encoderStandaloneNorm = encoderNormLayer(
-            encoderStandaloneReshape1, encoderStandalone
-        )
         encoderBypass.append(lastEncoderOutput)
         encoderStandaloneBypass.append(lastEncoderStandaloneOutput)
-        lastEncoderOutput = encoderNorm
-        lastEncoderStandaloneOutput = encoderStandaloneNorm
+        lastEncoderOutput = encoderMiddleRNN
+        lastEncoderStandaloneOutput = encoderStandaloneMiddleRNN
         j = 1
         while (i + 1) % j == 0:
             layer = AddNorm()
@@ -285,9 +296,9 @@ def useExtendedTransformer(
                 encoderStandaloneBypass[i - j + 1], lastEncoderStandaloneOutput
             )
             j *= 2
-    encoderReshape2 = tf.keras.layers.Reshape(target_shape=(None, maxLen * dModel))(
-        lastEncoderOutput
-    )
+    encoderReshape2 = tf.keras.layers.Reshape(
+        target_shape=(encoderRecurrent, maxLen * dModel)
+    )(lastEncoderOutput)
     encoderRNN, _ = tf.keras.layers.RNN(
         AttentionRNNCell(h, dModel // h, maxLen),
         return_state=True,
