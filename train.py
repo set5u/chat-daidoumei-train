@@ -399,7 +399,7 @@ def useExtendedTransformer(
             maxLen * dModel, return_sequences=True, return_state=True
         )
         encoderMiddleRNNInitialStateInput = tf.keras.layers.Input(
-            shape=(maxLen, dModel)
+            shape=(maxLen * dModel,)
         )
         encoderMiddleLayerStateInputs.append(encoderMiddleRNNInitialStateInput)
         encoderMiddleRNN, _ = encoderMiddleRNNLayer(encoderMiddleReshape0)
@@ -638,7 +638,7 @@ def useExtendedTransformer(
             maxLen * dModel, return_sequences=True, return_state=True
         )
         decoderMiddleRNNInitialStateInput = tf.keras.layers.Input(
-            shape=(maxLen, dModel)
+            shape=(maxLen * dModel,)
         )
         decoderMiddleLayerStateInputs.append(decoderMiddleRNNInitialStateInput)
         decoderMiddleRNN, _ = decoderMiddleRNNLayer(decoderMiddleReshape0)
@@ -861,16 +861,36 @@ def predict():
     encoderOutput = models["encoder"](
         (
             encoderInput,
-            tf.reshape(positionalEncoding(maxLen, 32), (1, maxLen, 32)),
-            tf.reshape(positionalEncoding(maxLen, 32), (1, maxLen, 32)),
-            tf.reshape(positionalEncoding(maxLen, 32), (1, maxLen, 32)),
-            tf.reshape(positionalEncoding(maxLen, 32), (1, maxLen, 32)),
+            tf.zeros(
+                (
+                    batchSize,
+                    maxLen * 32,
+                )
+            ),
+            tf.zeros(
+                (
+                    batchSize,
+                    maxLen * 32,
+                )
+            ),
+            tf.zeros(
+                (
+                    batchSize,
+                    maxLen * 32,
+                )
+            ),
+            tf.zeros(
+                (
+                    batchSize,
+                    maxLen * 32,
+                )
+            ),
         )
     )
     encoderRNNOutput = tf.reshape(
         models["encoderRNNLayer"](
             tf.reshape(encoderOutput[0], [batchSize, -1, maxLen * 32])
-        ),
+        )[0],
         [batchSize, maxLen, -1],
     )
     outputs = [1]
@@ -903,16 +923,16 @@ def predict():
                 tf.reshape(
                     decoderPositionalEncodingOutput, (batchSize, -1, maxLen * 32)
                 )
-            ),
+            )[0],
             (batchSize, -1, maxLen, 32),
         )
         bridgeRNNOutput = tf.reshape(
             models["bridgeRNNLayer"](
                 tf.tile(
-                    tf.reshape(encoderRNNOutput, (batchSize, 1, maxLen, 32)),
-                    (1, decoderInput.shape[1], 1, 1),
+                    tf.reshape(encoderRNNOutput, (batchSize, 1, maxLen * 32)),
+                    (1, decoderInput.shape[1], 1),
                 )
-            ),
+            )[0],
             (batchSize, -1, maxLen, 32),
         )
         decoderLayerOutput = models["decoder"](
@@ -920,10 +940,30 @@ def predict():
                 decoderRNNOutput,
                 tf.minimum(decoderInput, tf.ones_like(decoderInput)),
                 bridgeRNNOutput,
-                tf.reshape(positionalEncoding(maxLen, 32), (1, maxLen, 32)),
-                tf.reshape(positionalEncoding(maxLen, 32), (1, maxLen, 32)),
-                tf.reshape(positionalEncoding(maxLen, 32), (1, maxLen, 32)),
-                tf.reshape(positionalEncoding(maxLen, 32), (1, maxLen, 32)),
+                tf.zeros(
+                    (
+                        batchSize,
+                        maxLen * 32,
+                    )
+                ),
+                tf.zeros(
+                    (
+                        batchSize,
+                        maxLen * 32,
+                    )
+                ),
+                tf.zeros(
+                    (
+                        batchSize,
+                        maxLen * 32,
+                    )
+                ),
+                tf.zeros(
+                    (
+                        batchSize,
+                        maxLen * 32,
+                    )
+                ),
             )
         )
         decoderOutput = tf.argmax(decoderLayerOutput[0], 3)
