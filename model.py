@@ -205,9 +205,7 @@ class DecoderLayer(tf.keras.Model):
         ret = self.attn0(ret, ret, attention_mask=mask, use_causal_mask=True)
         ret = self.norm1(ret, input)
         input = self.dropout1(ret)
-        ret = self.attn1(
-            input, encoderOutput, attention_mask=mask, use_causal_mask=True
-        )
+        ret = self.attn1(input, encoderOutput)
         ret = self.norm2(ret, input)
         input = self.dropout2(ret)
         ret = self.ff(input)
@@ -234,9 +232,9 @@ class AttentionRNNCell(tf.keras.Model):
 
     def build(self, input_shape):
         input_shape = (input_shape[0],) + (self.maxLen, self.h * self.keyDim)
-        self.attn.build(input_shape)
+        self.attn.build(input_shape, input_shape)
         self.norm1.build(input_shape)
-        self.sattn.build(input_shape)
+        self.sattn.build(input_shape, input_shape)
         self.norm2.build(input_shape)
 
     def call(self, *inputs):
@@ -269,8 +267,8 @@ class MiddleLayer(tf.keras.Model):
         self.reshape1 = tf.keras.layers.Reshape(target_shape=(-1, maxLen, dModel))
 
     def build(self, input_shapes):
-        input_shape = input_shapes
-        computed = input_shapes[0:2] + (self.dModelLen,)
+        input_shape = input_shapes[0]
+        computed = input_shape[0:2] + (self.dModelLen,)
         self.reshape0.build(input_shape)
         self.rnn.build(computed)
         self.reshape1.build(computed)
