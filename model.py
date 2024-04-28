@@ -664,6 +664,54 @@ def predict():
                     maxLen * 32,
                 )
             ),
+            tf.zeros(
+                (
+                    batchSize,
+                    maxLen * 32,
+                )
+            ),
+            tf.zeros(
+                (
+                    batchSize,
+                    maxLen * 32,
+                )
+            ),
+            tf.zeros(
+                (
+                    batchSize,
+                    maxLen * 32,
+                )
+            ),
+            tf.zeros(
+                (
+                    batchSize,
+                    maxLen * 32,
+                )
+            ),
+            tf.zeros(
+                (
+                    batchSize,
+                    maxLen * 32,
+                )
+            ),
+            tf.zeros(
+                (
+                    batchSize,
+                    maxLen * 32,
+                )
+            ),
+            tf.zeros(
+                (
+                    batchSize,
+                    maxLen * 32,
+                )
+            ),
+            tf.zeros(
+                (
+                    batchSize,
+                    maxLen * 32,
+                )
+            ),
         )
     )
     encoderRNNOutput = tf.reshape(
@@ -759,6 +807,54 @@ def predict():
                         maxLen * 32,
                     )
                 ),
+                tf.zeros(
+                    (
+                        batchSize,
+                        maxLen * 32,
+                    )
+                ),
+                tf.zeros(
+                    (
+                        batchSize,
+                        maxLen * 32,
+                    )
+                ),
+                tf.zeros(
+                    (
+                        batchSize,
+                        maxLen * 32,
+                    )
+                ),
+                tf.zeros(
+                    (
+                        batchSize,
+                        maxLen * 32,
+                    )
+                ),
+                tf.zeros(
+                    (
+                        batchSize,
+                        maxLen * 32,
+                    )
+                ),
+                tf.zeros(
+                    (
+                        batchSize,
+                        maxLen * 32,
+                    )
+                ),
+                tf.zeros(
+                    (
+                        batchSize,
+                        maxLen * 32,
+                    )
+                ),
+                tf.zeros(
+                    (
+                        batchSize,
+                        maxLen * 32,
+                    )
+                ),
             )
         )
         decoderOutput = tf.argmax(decoderLayerOutput[0], 3)
@@ -767,9 +863,9 @@ def predict():
         outputs.append(decoderArgmax[i].numpy())
 
 
-with open("./weights/weight-2.jsonl") as f:
-    weights = load("".join(f.readlines()))
-models["trainer"].set_weights(weights)
+# with open("./weights/weight-1.jsonl") as f:
+#     weights = load("".join(f.readlines()))
+# models["trainer"].set_weights(weights)
 # toSave = save(models["trainer"])
 # with open("./weights/weight-" + str(2) + ".jsonl", "w") as f:
 #     f.write(toSave)
