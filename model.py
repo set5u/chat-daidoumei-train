@@ -5,8 +5,8 @@ import math
 import random
 
 batchSize = 16
-encoderRecurrent = None
-decoderRecurrent = None
+encoderRecurrentCount = None
+decoderRecurrentCount = None
 
 
 def save(model):
@@ -61,7 +61,7 @@ class RNNTiler(tf.keras.Model):
         return tf.tile(inputs[0], (1, inputs[1].shape[1], 1, 1))
 
     def compute_output_shape(self, inputShape):
-        return inputShape[0][0:1] + (decoderRecurrent,) + inputShape[0][2:]
+        return inputShape[0][0:1] + (decoderRecurrentCount,) + inputShape[0][2:]
 
 
 class AddNorm(tf.keras.Model):
@@ -85,7 +85,9 @@ class FF(tf.keras.Model):
     def __init__(self, dModel, dFF, maxLen, use_causal_mask=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.mask = (
-            tf.keras.ops.tril(tf.ones((maxLen, maxLen)), 0)
+            tf.linalg.LinearOperatorLowerTriangular(
+                tf.ones((maxLen, maxLen))
+            ).to_dense()
             if use_causal_mask
             else tf.ones((maxLen, maxLen))
         )
@@ -98,10 +100,14 @@ class FF(tf.keras.Model):
         self.maxLen = maxLen
 
     def build(self, input_shape):
-        input_shape = input_shape[0:1] + input_shape[1:2] * 2 + input_shape[2:]
+        input_shape = (
+            input_shape[0:1] + input_shape[1:2] + input_shape[1:2] + input_shape[2:]
+        )
         self.ff0.build(input_shape)
         input_shape = self.ff0.compute_output_shape(input_shape)
-        input_shape = input_shape[0:1] + input_shape[1:2] * 2 + input_shape[2:]
+        input_shape = (
+            input_shape[0:1] + input_shape[1:2] + input_shape[1:2] + input_shape[2:]
+        )
         self.ff1.build(input_shape)
 
     def call(self, *inputs):
@@ -228,9 +234,9 @@ class AttentionRNNCell(tf.keras.Model):
 
     def build(self, input_shape):
         input_shape = (input_shape[0],) + (self.maxLen, self.h * self.keyDim)
-        self.attn.build(input_shape, input_shape)
+        self.attn.build(input_shape)
         self.norm1.build(input_shape)
-        self.sattn.build(input_shape, input_shape)
+        self.sattn.build(input_shape)
         self.norm2.build(input_shape)
 
     def call(self, *inputs):
@@ -263,8 +269,8 @@ class MiddleLayer(tf.keras.Model):
         self.reshape1 = tf.keras.layers.Reshape(target_shape=(-1, maxLen, dModel))
 
     def build(self, input_shapes):
-        input_shape = input_shapes[0]
-        computed = input_shapes[0][0:2] + (self.dModelLen,)
+        input_shape = input_shapes
+        computed = input_shapes[0:2] + (self.dModelLen,)
         self.reshape0.build(input_shape)
         self.rnn.build(computed)
         self.reshape1.build(computed)
@@ -292,7 +298,7 @@ def useExtendedTransformer(
     depthTarget,
     layers,
 ):
-    encoderInput = tf.keras.Input(shape=[encoderRecurrent, maxLen])
+    encoderInput = tf.keras.Input(shape=[encoderRecurrentCount, maxLen])
     encoderOnes = tf.keras.layers.Dense(
         units=maxLen,
         kernel_initializer="zeros",
@@ -353,7 +359,7 @@ def useExtendedTransformer(
             )
             j *= 2
     encoderReshape2 = tf.keras.layers.Reshape(
-        target_shape=(encoderRecurrent, maxLen * dModel)
+        target_shape=(encoderRecurrentCount, maxLen * dModel)
     )(lastEncoderOutput)
     encoderRNNLayer = tf.keras.layers.RNN(
         AttentionRNNCell(h, dModel // h, maxLen),
@@ -361,13 +367,15 @@ def useExtendedTransformer(
     )
     encoderRNN, _ = encoderRNNLayer(encoderReshape2)
     encoderReshape3 = tf.keras.layers.Reshape(target_shape=(maxLen, dModel))(encoderRNN)
-    decoderInput = tf.keras.Input(shape=(decoderRecurrent, maxLen))
-    decoderStandaloneInput = tf.keras.Input(shape=(decoderRecurrent, maxLen, dModel))
+    decoderInput = tf.keras.Input(shape=(decoderRecurrentCount, maxLen))
+    decoderStandaloneInput = tf.keras.Input(
+        shape=(decoderRecurrentCount, maxLen, dModel)
+    )
     decoderStandaloneRNNInput = tf.keras.Input(
-        shape=(decoderRecurrent, maxLen, dModel),
+        shape=(decoderRecurrentCount, maxLen, dModel),
     )
     decoderStandaloneMaskInput = tf.keras.Input(
-        shape=(decoderRecurrent, maxLen),
+        shape=(decoderRecurrentCount, maxLen),
     )
     decoderOnes = tf.keras.layers.Dense(
         units=maxLen,
@@ -454,7 +462,6 @@ def useExtendedTransformer(
         optimizer,
         loss="sparse_categorical_crossentropy",
         metrics=["accuracy"],
-        run_eagerly=True,
     )
     encoder = tf.keras.Model(
         inputs=[encoderInput] + encoderMiddleLayerStateInputs,
@@ -863,9 +870,9 @@ def predict():
         outputs.append(decoderArgmax[i].numpy())
 
 
-# with open("./weights/weight-1.jsonl") as f:
-#     weights = load("".join(f.readlines()))
-# models["trainer"].set_weights(weights)
+with open("./weights/weight-1.jsonl") as f:
+    weights = load("".join(f.readlines()))
+models["trainer"].set_weights(weights)
 # toSave = save(models["trainer"])
 # with open("./weights/weight-" + str(2) + ".jsonl", "w") as f:
 #     f.write(toSave)
