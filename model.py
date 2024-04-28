@@ -2,6 +2,7 @@ import json
 import tensorflow as tf
 import numpy as np
 import math
+import random
 
 batchSize = 16
 encoderRecurrent = None
@@ -57,7 +58,7 @@ def positionalEncoding(length, depth):
 
 class RNNTiler(tf.keras.Model):
     def call(self, *inputs):
-        return tf.tile(inputs[0], (1, inputs[1].shape[1], 1))
+        return tf.tile(inputs[0], (1, inputs[1].shape[1], 1, 1))
 
     def compute_output_shape(self, inputShape):
         return inputShape[0][0:1] + (decoderRecurrent,) + inputShape[0][2:]
@@ -104,11 +105,11 @@ class FF(tf.keras.Model):
         self.ff1.build(input_shape)
 
     def call(self, *inputs):
-        mask = self.mask
-        input = tf.expand_dims(inputs[0][:, tf.newaxis], (1, self.maxLen, 1))
+        mask = self.mask[tf.newaxis, :, :, tf.newaxis]
+        input = tf.tile(inputs[0][:, tf.newaxis], (1, self.maxLen, 1, 1))
         ret = input * mask
         ret = self.ff0(ret)
-        ret = tf.expand_dims(ret[:, tf.newaxis], (1, self.maxLen, 1))
+        ret = tf.tile(ret[:, tf.newaxis], (1, self.maxLen, 1, 1))
         ret = ret * mask
         ret = self.ff1(ret)
         return ret
@@ -144,7 +145,7 @@ class EncoderLayer(tf.keras.Model):
 
     def call(self, *inputs):
         input = inputs[0][:, :, :-1]
-        mask = inputs[0][:, :, -1]
+        mask = inputs[0][:, :, -1][:, tf.newaxis, :, tf.newaxis]
         ret = input
         ret = self.attn(input, input, attention_mask=mask)
         ret = self.norm1(ret, input)
@@ -156,6 +157,60 @@ class EncoderLayer(tf.keras.Model):
 
     def compute_output_shape(self, input_shape):
         return input_shape[0:2] + (input_shape[2] - 1,)
+
+
+class DecoderLayer(tf.keras.Model):
+    def __init__(self, dModel, dFF, pDropout, h, maxLen, depthDecoder, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dModel = dModel
+        self.dFF = dFF
+        self.pDropout = pDropout
+        self.h = h
+        self.maxLen = maxLen
+        self.depthDecoder = depthDecoder
+        self.attn0 = tf.keras.layers.MultiHeadAttention(h, dModel // h)
+        self.norm1 = AddNorm()
+        self.dropout1 = tf.keras.layers.Dropout(pDropout)
+        self.attn1 = tf.keras.layers.MultiHeadAttention(h, dModel // h)
+        self.norm2 = AddNorm()
+        self.dropout2 = tf.keras.layers.Dropout(pDropout)
+        self.ff = FF(dModel, dFF, maxLen, use_causal_mask=True)
+        self.norm3 = AddNorm()
+        self.dropout3 = tf.keras.layers.Dropout(pDropout)
+
+    def build(self, input_shape):
+        input_shape = input_shape[0:2] + ((input_shape[2] - 1) // 2,)
+        self.attn0.build(input_shape, input_shape)
+        self.norm1.build(input_shape)
+        self.dropout1.build(input_shape)
+        self.attn1.build(input_shape, input_shape)
+        self.norm2.build(input_shape)
+        self.dropout2.build(input_shape)
+        self.ff.build(input_shape)
+        self.norm3.build(input_shape)
+        self.dropout3.build(input_shape)
+
+    def call(self, *inputs):
+        input = inputs[0][:, :, :-1]
+        encoderOutput = input[:, :, input.shape[2] // 2 :]
+        input = inputs[0][:, :, : input.shape[2] // 2]
+        mask = inputs[0][:, :, -1][:, tf.newaxis, :, tf.newaxis]
+        ret = input
+        ret = self.attn0(ret, ret, attention_mask=mask, use_causal_mask=True)
+        ret = self.norm1(ret, input)
+        input = self.dropout1(ret)
+        ret = self.attn1(
+            input, encoderOutput, attention_mask=mask, use_causal_mask=True
+        )
+        ret = self.norm2(ret, input)
+        input = self.dropout2(ret)
+        ret = self.ff(input)
+        ret = self.norm3(ret, input)
+        ret = self.dropout3(ret)
+        return ret
+
+    def compute_output_shape(self, input_shape):
+        return input_shape[0:2] + ((input_shape[2] - 1) // 2,)
 
 
 class AttentionRNNCell(tf.keras.Model):
@@ -207,9 +262,12 @@ class MiddleLayer(tf.keras.Model):
         )
         self.reshape1 = tf.keras.layers.Reshape(target_shape=(-1, maxLen, dModel))
 
-    def build(self, input_shape):
-        computed = input_shape[0:2] + (self.dModelLen,)
+    def build(self, input_shapes):
+        input_shape = input_shapes[0]
+        computed = input_shapes[0][0:2] + (self.dModelLen,)
+        self.reshape0.build(input_shape)
         self.rnn.build(computed)
+        self.reshape1.build(computed)
 
     def call(self, *inputs):
         input = inputs[0]
@@ -297,10 +355,11 @@ def useExtendedTransformer(
     encoderReshape2 = tf.keras.layers.Reshape(
         target_shape=(encoderRecurrent, maxLen * dModel)
     )(lastEncoderOutput)
-    encoderRNN, _ = tf.keras.layers.RNN(
+    encoderRNNLayer = tf.keras.layers.RNN(
         AttentionRNNCell(h, dModel // h, maxLen),
         return_state=True,
-    )(encoderReshape2)
+    )
+    encoderRNN, _ = encoderRNNLayer(encoderReshape2)
     encoderReshape3 = tf.keras.layers.Reshape(target_shape=(maxLen, dModel))(encoderRNN)
     decoderInput = tf.keras.Input(shape=(decoderRecurrent, maxLen))
     decoderStandaloneInput = tf.keras.Input(shape=(decoderRecurrent, maxLen, dModel))
@@ -321,22 +380,103 @@ def useExtendedTransformer(
         layer=tf.keras.layers.Embedding(
             input_dim=depthDecoder,
             output_dim=dModel,
-            # mask_zero=True,
+            mask_zero=True,
         ),
     )
     decoderEmbedding = decoderEmbeddingLayer(decoderInput)
     decoderPositionalEncoding = decoderEmbedding + positionalEncoding(maxLen, dModel)
-    decoderReshape0Layer = tf.keras.layers.Reshape(target_shape=(1, maxLen * dModel))
-    decoderReshape0 = decoderReshape0Layer(encoderReshape3)
-    tiler = RNNTiler()(decoderReshape0, decoderInput)
-    bridgeRNN, _ = MiddleLayer(h, dModel // h, maxLen)(tiler)
+    tiler = RNNTiler()(encoderReshape3[:, tf.newaxis], decoderInput)
+    bridgeRNNLayer = MiddleLayer(h, dModel // h, maxLen)
+    bridgeRNN, _ = bridgeRNNLayer(tiler)
     decoderMiddleLayerStateInputs = []
     decoderMiddleLayerStateOutputs = []
     lastDecoderOutput = decoderPositionalEncoding
     lastDecoderStandaloneOutput = decoderStandaloneRNNInput
     decoderBypass = []
     decoderStandaloneBypass = []
-    tf.keras.Model(inputs=encoderInput, outputs=encoderReshape3).summary()
+    for i in range(layers):
+        concattedInputLayer = tf.keras.layers.Concatenate(3)
+        concattedInput = concattedInputLayer(
+            [
+                lastDecoderOutput,
+                bridgeRNN,
+                decoderAttentionMask[:, :, :, tf.newaxis],
+            ]
+        )
+        concattedStandaloneInput = concattedInputLayer(
+            [
+                lastDecoderStandaloneOutput,
+                decoderStandaloneInput,
+                decoderStandaloneMaskInput[:, :, :, tf.newaxis],
+            ]
+        )
+        decoderLayer = tf.keras.layers.TimeDistributed(
+            DecoderLayer(dModel, dFF, pDropout, h, maxLen, depthDecoder)
+        )
+        decoder = decoderLayer(concattedInput)
+        decoderStandalone = decoderLayer(concattedStandaloneInput)
+        decoderMiddleLayer = MiddleLayer(h, dModel // h, maxLen)
+        decoderMiddleRNN, _ = decoderMiddleLayer(decoder)
+        decoderMiddleRNNInitialStateInput = tf.keras.layers.Input(
+            shape=(maxLen * dModel,)
+        )
+        decoderMiddleLayerStateInputs.append(decoderMiddleRNNInitialStateInput)
+        decoderStandaloneMiddleRNN, decoderStandaloneMiddleRNNState = (
+            decoderMiddleLayer(decoderStandalone, decoderMiddleRNNInitialStateInput)
+        )
+        decoderMiddleLayerStateOutputs.append(decoderStandaloneMiddleRNNState)
+        decoderBypass.append(lastDecoderOutput)
+        decoderStandaloneBypass.append(lastDecoderStandaloneOutput)
+        lastDecoderOutput = decoderMiddleRNN
+        lastDecoderStandaloneOutput = decoderStandaloneMiddleRNN
+        j = 1
+        while (i + 1) % j == 0:
+            layer = AddNorm()
+            lastDecoderOutput = layer(decoderBypass[i - j + 1], lastDecoderOutput)
+            lastDecoderStandaloneOutput = layer(
+                decoderStandaloneBypass[i - j + 1], lastDecoderStandaloneOutput
+            )
+            j *= 2
+    decoderDenseLayer = tf.keras.layers.TimeDistributed(
+        layer=tf.keras.layers.Dense(
+            units=depthTarget,
+            activation="softmax",
+        ),
+    )
+    decoderDense = decoderDenseLayer(lastDecoderOutput)
+    decoderStandaloneDense = decoderDenseLayer(lastDecoderStandaloneOutput)
+    trainer = tf.keras.Model(
+        inputs=(encoderInput, decoderInput),
+        outputs=decoderDense,
+    )
+    optimizer = tf.keras.optimizers.Adadelta()
+    trainer.compile(
+        optimizer,
+        loss="sparse_categorical_crossentropy",
+        metrics=["accuracy"],
+        run_eagerly=True,
+    )
+    encoder = tf.keras.Model(
+        inputs=[encoderInput] + encoderMiddleLayerStateInputs,
+        outputs=[lastEncoderOutput] + encoderMiddleLayerStateOutputs,
+    )
+    decoder = tf.keras.Model(
+        inputs=[
+            decoderStandaloneRNNInput,
+            decoderStandaloneMaskInput,
+            decoderStandaloneInput,
+        ]
+        + decoderMiddleLayerStateInputs,
+        outputs=[decoderStandaloneDense] + decoderMiddleLayerStateOutputs,
+    )
+    return {
+        "trainer": trainer,
+        "encoder": encoder,
+        "decoder": decoder,
+        "encoderRNNLayer": encoderRNNLayer,
+        "bridgeRNNLayer": bridgeRNNLayer,
+        "decoderEmbeddingLayer": decoderEmbeddingLayer,
+    }
 
 
 with open("./num2char.json") as f:
@@ -357,5 +497,285 @@ models = useExtendedTransformer(
     depth,
     depth,
     depth,
-    4,
+    8,
 )
+models["trainer"].summary()
+tf.keras.utils.plot_model(models["trainer"], "model.png", show_shapes=True)
+
+
+def loader():
+    pads = np.array([0] * maxLen)
+    while True:
+        encoderInput = []
+        decoderInput = []
+        decoderOutput = []
+        for j in range(batchSize * 4):
+            i = math.floor(random.random() * (len(tokens) - 8)) + 8
+            ea = tokens[i - math.floor(random.random()) * 8 - 8 : i].copy()
+            for k in range(len(ea)):
+                ec = ea[k].copy()
+                ea[k] = ec
+                ec.append(2)
+            flatten = sum(ea, [])
+            flatten.extend(
+                [0]
+                * (math.floor(len(flatten) / maxLen) * maxLen + maxLen - len(flatten))
+            )
+            e = np.array(flatten).reshape([len(flatten) // maxLen, maxLen])
+
+            da = tokens[i].copy()
+            da.insert(0, 1)
+            da.extend([0] * (math.floor(len(da) / maxLen) * maxLen + maxLen - len(da)))
+            d = np.array(da).reshape([len(da) // maxLen, maxLen])
+
+            de = tokens[i].copy()
+            de.append(2)
+            de.extend([0] * (math.floor(len(de) / maxLen) * maxLen + maxLen - len(de)))
+            o = np.array(de).reshape([len(de) // maxLen, maxLen])
+            if len(e) < 2:
+                e = np.append(e, [pads], 0)
+
+            if len(d) < 2:
+                d = np.append(d, [pads], 0)
+
+            if len(o) < 2:
+                o = np.append(o, [pads], 0)
+            encoderInput.append(e)
+            decoderInput.append(d)
+            decoderOutput.append(o)
+        encoderInputMax = 0
+        for e in encoderInput:
+            encoderInputMax = max(len(e), encoderInputMax)
+        for b, e in enumerate(encoderInput):
+            for a in range(encoderInputMax - len(e)):
+                encoderInput[b] = np.append(encoderInput[b], [pads], 0)
+        decoderInputMax = 0
+        for e in decoderInput:
+            decoderInputMax = max(len(e), decoderInputMax)
+
+        for b, e in enumerate(decoderInput):
+            for a in range(decoderInputMax - len(e)):
+                decoderInput[b] = np.append(decoderInput[b], [pads], 0)
+
+        decoderOutputMax = 0
+        for e in decoderOutput:
+            decoderOutputMax = max(len(e), decoderOutputMax)
+
+        for b, e in enumerate(decoderOutput):
+            for a in range(decoderOutputMax - len(e)):
+                decoderOutput[b] = np.append(decoderOutput[b], [pads], 0)
+        yield (
+            (np.array(encoderInput), np.array(decoderInput)),
+            np.array(decoderOutput),
+        )
+
+
+class Callback(tf.keras.callbacks.Callback):
+    def on_epoch_end(self, epoch, _):
+        toSave = save(models["trainer"])
+        with open(
+            "./weights/weight-" + str(1) + ".jsonl",
+            "w",
+        ) as f:
+            f.write(toSave)
+
+
+def train():
+    trainDatas = loader()
+    epoch = 0
+    while True:
+        print("epoch " + str(epoch))
+        data = next(trainDatas)
+        models["trainer"].fit(
+            data[0],
+            data[1],
+            batch_size=batchSize,
+            steps_per_epoch=4,
+            epochs=1,
+            callbacks=[Callback()] if epoch % 50 == 1 else [],
+        )
+        epoch += 1
+
+
+def predict():
+    batchSize = 1
+    prompt = "数学やった?"
+    encoderInput = [3, 51, 51, 454, 703, 5]
+    for c in prompt:
+        encoderInput.append(char2num[c])
+
+    encoderInput.extend(
+        [0]
+        * (math.floor(len(encoderInput) / maxLen) * maxLen + maxLen - len(encoderInput))
+    )
+    encoderInput = np.array(encoderInput).reshape(
+        [1, len(encoderInput) // maxLen, maxLen]
+    )
+    if len(encoderInput[0]) < 2:
+        encoderInput = np.append(encoderInput, [[[0] * maxLen]], 0)
+    encoderInput = tf.tile(encoderInput, [batchSize, 1, 1])
+    encoderOutput = models["encoder"](
+        (
+            encoderInput,
+            tf.zeros(
+                (
+                    batchSize,
+                    maxLen * 32,
+                )
+            ),
+            tf.zeros(
+                (
+                    batchSize,
+                    maxLen * 32,
+                )
+            ),
+            tf.zeros(
+                (
+                    batchSize,
+                    maxLen * 32,
+                )
+            ),
+            tf.zeros(
+                (
+                    batchSize,
+                    maxLen * 32,
+                )
+            ),
+            tf.zeros(
+                (
+                    batchSize,
+                    maxLen * 32,
+                )
+            ),
+            tf.zeros(
+                (
+                    batchSize,
+                    maxLen * 32,
+                )
+            ),
+            tf.zeros(
+                (
+                    batchSize,
+                    maxLen * 32,
+                )
+            ),
+            tf.zeros(
+                (
+                    batchSize,
+                    maxLen * 32,
+                )
+            ),
+        )
+    )
+    encoderRNNOutput = tf.reshape(
+        models["encoderRNNLayer"](
+            tf.reshape(encoderOutput[0], [batchSize, -1, maxLen * 32])
+        )[0],
+        [batchSize, maxLen, -1],
+    )
+    outputs = [1]
+    for i in range(32):
+        decoderInput = outputs.copy()
+        decoderInput.extend(
+            [0]
+            * (
+                math.floor(len(decoderInput) / maxLen) * maxLen
+                + maxLen
+                - len(decoderInput)
+            )
+        )
+
+        decoderInput = np.array(decoderInput).reshape(
+            [len(decoderInput) // maxLen, maxLen]
+        )
+        if len(decoderInput) < 2:
+            decoderInput = np.append(decoderInput, [[0] * maxLen], 0)
+        decoderInput = decoderInput[tf.newaxis, :, :]
+        decoderInput = np.tile(decoderInput, [batchSize, 1, 1])
+        decoderPositionalEncodingOutput = models["decoderEmbeddingLayer"](
+            decoderInput
+        ) + np.tile(
+            positionalEncoding(maxLen, 32)[tf.newaxis, tf.newaxis, :, :],
+            (batchSize, len(decoderInput[0]), 1, 1),
+        )
+        bridgeRNNOutput = tf.reshape(
+            models["bridgeRNNLayer"](
+                tf.tile(
+                    tf.reshape(encoderRNNOutput, (batchSize, 1, maxLen * 32)),
+                    (1, decoderInput.shape[1], 1),
+                )
+            )[0],
+            (batchSize, -1, maxLen, 32),
+        )
+        decoderLayerOutput = models["decoder"](
+            (
+                decoderPositionalEncodingOutput,
+                tf.minimum(decoderInput, tf.ones_like(decoderInput)),
+                bridgeRNNOutput,
+                tf.zeros(
+                    (
+                        batchSize,
+                        maxLen * 32,
+                    )
+                ),
+                tf.zeros(
+                    (
+                        batchSize,
+                        maxLen * 32,
+                    )
+                ),
+                tf.zeros(
+                    (
+                        batchSize,
+                        maxLen * 32,
+                    )
+                ),
+                tf.zeros(
+                    (
+                        batchSize,
+                        maxLen * 32,
+                    )
+                ),
+                tf.zeros(
+                    (
+                        batchSize,
+                        maxLen * 32,
+                    )
+                ),
+                tf.zeros(
+                    (
+                        batchSize,
+                        maxLen * 32,
+                    )
+                ),
+                tf.zeros(
+                    (
+                        batchSize,
+                        maxLen * 32,
+                    )
+                ),
+                tf.zeros(
+                    (
+                        batchSize,
+                        maxLen * 32,
+                    )
+                ),
+            )
+        )
+        decoderOutput = tf.argmax(decoderLayerOutput[0], 3)
+        decoderArgmax = tf.reshape(decoderOutput[0], (-1,))
+        print(num2char[decoderArgmax[i]], end="")
+        outputs.append(decoderArgmax[i].numpy())
+
+
+with open("./weights/weight-2.jsonl") as f:
+    weights = load("".join(f.readlines()))
+models["trainer"].set_weights(weights)
+# toSave = save(models["trainer"])
+# with open("./weights/weight-" + str(2) + ".jsonl", "w") as f:
+#     f.write(toSave)
+toTrain = False
+if toTrain:
+    train()
+else:
+    predict()
