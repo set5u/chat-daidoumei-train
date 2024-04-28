@@ -487,7 +487,6 @@ with open("./tokens.json") as f:
     tokens = json.loads("".join(f.readlines()))
 depth = len(num2char)
 maxLen = 8
-toTrain = False
 models = useExtendedTransformer(
     32,
     64,
@@ -497,7 +496,7 @@ models = useExtendedTransformer(
     depth,
     depth,
     depth,
-    8,
+    16,
 )
 models["trainer"].summary()
 tf.keras.utils.plot_model(models["trainer"], "model.png", show_shapes=True)
