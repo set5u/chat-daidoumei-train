@@ -254,13 +254,13 @@ class AttentionRNNCell(tf.keras.Model):
 
 
 class MiddleLayer(tf.keras.Model):
-    def __init__(self, h, keyDim, maxLen, *args, **kwargs):
+    def __init__(self, h, keyDim, maxLen, use_causal_mask=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         dModel = h * keyDim
         self.dModelLen = dModel * maxLen
         self.reshape0 = tf.keras.layers.Reshape(target_shape=(-1, maxLen * dModel))
         self.rnn = tf.keras.layers.RNN(
-            AttentionRNNCell(h, dModel // h, maxLen),
+            AttentionRNNCell(h, dModel // h, maxLen, use_causal_mask=use_causal_mask),
             return_sequences=True,
             return_state=True,
         )
@@ -421,7 +421,7 @@ def useExtendedTransformer(
         )
         decoder = decoderLayer(concattedInput)
         decoderStandalone = decoderLayer(concattedStandaloneInput)
-        decoderMiddleLayer = MiddleLayer(h, dModel // h, maxLen)
+        decoderMiddleLayer = MiddleLayer(h, dModel // h, maxLen, use_causal_mask=True)
         decoderMiddleRNN, _ = decoderMiddleLayer(decoder)
         decoderMiddleRNNInitialStateInput = tf.keras.layers.Input(
             shape=(maxLen * dModel,)
