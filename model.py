@@ -242,7 +242,7 @@ class AttentionRNNCell(tf.keras.Model):
         input1 = tf.reshape(inputs[1], (-1, self.maxLen, self.h * self.keyDim))
         ret = self.attn(input0, input1, use_causal_mask=self.use_causal_mask)
         ret = self.norm1(ret, input0)
-        state = self.sattn(input0, input1, use_causal_mask=self.use_causal_mask)
+        state = self.sattn(input0, input1)
         state = self.norm2(state, input0)
         return [
             tf.reshape(ret, (-1, self.maxLen * self.h * self.keyDim)),
