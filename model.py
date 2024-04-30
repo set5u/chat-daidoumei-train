@@ -217,46 +217,46 @@ class DecoderLayer(tf.keras.Model):
         return input_shape[0:2] + ((input_shape[2] - 1) // 2,)
 
 
-class AttentionRNNCell(tf.keras.Model):
-    def __init__(self, h, keyDim, maxLen, use_causal_mask=False, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.attn = tf.keras.layers.MultiHeadAttention(h, keyDim)
-        self.ff1 = FF(h * keyDim, h * keyDim, maxLen, use_causal_mask=use_causal_mask)
-        self.norm1 = AddNorm()
-        self.sattn = tf.keras.layers.MultiHeadAttention(h, keyDim)
-        self.ff2 = FF(h * keyDim, h * keyDim, maxLen)
-        self.norm2 = AddNorm()
-        self.h = h
-        self.keyDim = keyDim
-        self.maxLen = maxLen
-        self.use_causal_mask = use_causal_mask
-        self.state_size = h * keyDim * maxLen
+# class AttentionRNNCell(tf.keras.Model):
+#     def __init__(self, h, keyDim, maxLen, use_causal_mask=False, *args, **kwargs):
+#         super().__init__(*args, **kwargs)
+#         self.attn = tf.keras.layers.MultiHeadAttention(h, keyDim)
+#         self.ff1 = FF(h * keyDim, h * keyDim, maxLen, use_causal_mask=use_causal_mask)
+#         self.norm1 = AddNorm()
+#         self.sattn = tf.keras.layers.MultiHeadAttention(h, keyDim)
+#         self.ff2 = FF(h * keyDim, h * keyDim, maxLen)
+#         self.norm2 = AddNorm()
+#         self.h = h
+#         self.keyDim = keyDim
+#         self.maxLen = maxLen
+#         self.use_causal_mask = use_causal_mask
+#         self.state_size = h * keyDim * maxLen
 
-    def build(self, input_shape):
-        input_shape = (input_shape[0],) + (self.maxLen, self.h * self.keyDim)
-        self.attn.build(input_shape, input_shape)
-        self.ff1.build(input_shape)
-        self.norm1.build(input_shape)
-        self.sattn.build(input_shape, input_shape)
-        self.ff2.build(input_shape)
-        self.norm2.build(input_shape)
+#     def build(self, input_shape):
+#         input_shape = (input_shape[0],) + (self.maxLen, self.h * self.keyDim)
+#         self.attn.build(input_shape, input_shape)
+#         self.ff1.build(input_shape)
+#         self.norm1.build(input_shape)
+#         self.sattn.build(input_shape, input_shape)
+#         self.ff2.build(input_shape)
+#         self.norm2.build(input_shape)
 
-    def call(self, *inputs):
-        input0 = tf.reshape(inputs[0], (-1, self.maxLen, self.h * self.keyDim))
-        input1 = tf.reshape(inputs[1], (-1, self.maxLen, self.h * self.keyDim))
-        ret = self.attn(input0, input1, use_causal_mask=self.use_causal_mask)
-        ret = self.ff1(ret)
-        ret = self.norm1(ret, input1)
-        state = self.sattn(input0, input1)
-        state = self.ff2(state)
-        state = self.norm2(state, input1)
-        return [
-            tf.reshape(ret, (-1, self.maxLen * self.h * self.keyDim)),
-            tf.reshape(state, (-1, self.maxLen * self.h * self.keyDim)),
-        ]
+#     def call(self, *inputs):
+#         input0 = tf.reshape(inputs[0], (-1, self.maxLen, self.h * self.keyDim))
+#         input1 = tf.reshape(inputs[1], (-1, self.maxLen, self.h * self.keyDim))
+#         ret = self.attn(input0, input1, use_causal_mask=self.use_causal_mask)
+#         ret = self.ff1(ret)
+#         ret = self.norm1(ret, input1)
+#         state = self.sattn(input0, input1)
+#         state = self.ff2(state)
+#         state = self.norm2(state, input1)
+#         return [
+#             tf.reshape(ret, (-1, self.maxLen * self.h * self.keyDim)),
+#             tf.reshape(state, (-1, self.maxLen * self.h * self.keyDim)),
+#         ]
 
-    def compute_output_shape(self, input_shape):
-        return input_shape
+#     def compute_output_shape(self, input_shape):
+#         return input_shape
 
 
 class MiddleLayer(tf.keras.Model):
@@ -265,8 +265,8 @@ class MiddleLayer(tf.keras.Model):
         dModel = h * keyDim
         self.dModelLen = dModel * maxLen
         self.reshape0 = tf.keras.layers.Reshape(target_shape=(-1, maxLen * dModel))
-        self.rnn = tf.keras.layers.RNN(
-            AttentionRNNCell(h, dModel // h, maxLen, use_causal_mask=use_causal_mask),
+        self.rnn = tf.keras.layers.GRU(
+            dModel * maxLen,
             return_sequences=True,
             return_state=True,
         )
@@ -365,8 +365,8 @@ def useExtendedTransformer(
     encoderReshape2 = tf.keras.layers.Reshape(
         target_shape=(encoderRecurrentCount, maxLen * dModel)
     )(lastEncoderOutput)
-    encoderRNNLayer = tf.keras.layers.RNN(
-        AttentionRNNCell(h, dModel // h, maxLen),
+    encoderRNNLayer = tf.keras.layers.GRU(
+        maxLen * dModel,
         return_state=True,
     )
     encoderRNN, _ = encoderRNNLayer(encoderReshape2)
@@ -874,7 +874,7 @@ def predict():
         outputs.append(decoderArgmax[i].numpy())
 
 
-with open("./weights/weight-1.jsonl") as f:
+with open("./weights/weight-2.jsonl") as f:
     weights = load("".join(f.readlines()))
 models["trainer"].set_weights(weights)
 # toSave = save(models["trainer"])
