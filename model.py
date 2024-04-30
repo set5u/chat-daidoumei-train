@@ -221,8 +221,10 @@ class AttentionRNNCell(tf.keras.Model):
     def __init__(self, h, keyDim, maxLen, use_causal_mask=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.attn = tf.keras.layers.MultiHeadAttention(h, keyDim)
+        self.ff1 = FF(h * keyDim, h * keyDim, maxLen, use_causal_mask=use_causal_mask)
         self.norm1 = AddNorm()
         self.sattn = tf.keras.layers.MultiHeadAttention(h, keyDim)
+        self.ff2 = FF(h * keyDim, h * keyDim, maxLen)
         self.norm2 = AddNorm()
         self.h = h
         self.keyDim = keyDim
@@ -233,17 +235,21 @@ class AttentionRNNCell(tf.keras.Model):
     def build(self, input_shape):
         input_shape = (input_shape[0],) + (self.maxLen, self.h * self.keyDim)
         self.attn.build(input_shape, input_shape)
+        self.ff1.build(input_shape)
         self.norm1.build(input_shape)
         self.sattn.build(input_shape, input_shape)
+        self.ff2.build(input_shape)
         self.norm2.build(input_shape)
 
     def call(self, *inputs):
         input0 = tf.reshape(inputs[0], (-1, self.maxLen, self.h * self.keyDim))
         input1 = tf.reshape(inputs[1], (-1, self.maxLen, self.h * self.keyDim))
         ret = self.attn(input0, input1, use_causal_mask=self.use_causal_mask)
-        ret = self.norm1(ret, input0)
+        ret = self.ff1(ret)
+        ret = self.norm1(ret, input1)
         state = self.sattn(input0, input1)
-        state = self.norm2(state, input0)
+        state = self.ff2(state)
+        state = self.norm2(state, input1)
         return [
             tf.reshape(ret, (-1, self.maxLen * self.h * self.keyDim)),
             tf.reshape(state, (-1, self.maxLen * self.h * self.keyDim)),
