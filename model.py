@@ -455,7 +455,7 @@ def useExtendedTransformer(
         inputs=(encoderInput, decoderInput),
         outputs=decoderDense,
     )
-    optimizer = tf.keras.optimizers.Adadelta(1)
+    optimizer = tf.keras.optimizers.Adadelta(1.0)
     trainer.compile(
         optimizer,
         loss="sparse_categorical_crossentropy",
