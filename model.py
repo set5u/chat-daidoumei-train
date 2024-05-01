@@ -217,53 +217,20 @@ class DecoderLayer(tf.keras.Model):
         return input_shape[0:2] + ((input_shape[2] - 1) // 2,)
 
 
-# class AttentionRNNCell(tf.keras.Model):
-#     def __init__(self, h, keyDim, maxLen, use_causal_mask=False, *args, **kwargs):
-#         super().__init__(*args, **kwargs)
-#         self.attn = tf.keras.layers.MultiHeadAttention(h, keyDim)
-#         self.ff1 = FF(h * keyDim, h * keyDim, maxLen, use_causal_mask=use_causal_mask)
-#         self.norm1 = AddNorm()
-#         self.sattn = tf.keras.layers.MultiHeadAttention(h, keyDim)
-#         self.ff2 = FF(h * keyDim, h * keyDim, maxLen)
-#         self.norm2 = AddNorm()
-#         self.h = h
-#         self.keyDim = keyDim
-#         self.maxLen = maxLen
-#         self.use_causal_mask = use_causal_mask
-#         self.state_size = h * keyDim * maxLen
-
-#     def build(self, input_shape):
-#         input_shape = (input_shape[0],) + (self.maxLen, self.h * self.keyDim)
-#         self.attn.build(input_shape, input_shape)
-#         self.ff1.build(input_shape)
-#         self.norm1.build(input_shape)
-#         self.sattn.build(input_shape, input_shape)
-#         self.ff2.build(input_shape)
-#         self.norm2.build(input_shape)
-
-#     def call(self, *inputs):
-#         input0 = tf.reshape(inputs[0], (-1, self.maxLen, self.h * self.keyDim))
-#         input1 = tf.reshape(inputs[1], (-1, self.maxLen, self.h * self.keyDim))
-#         ret = self.attn(input0, input1, use_causal_mask=self.use_causal_mask)
-#         ret = self.ff1(ret)
-#         ret = self.norm1(ret, input1)
-#         state = self.sattn(input0, input1)
-#         state = self.ff2(state)
-#         state = self.norm2(state, input1)
-#         return [
-#             tf.reshape(ret, (-1, self.maxLen * self.h * self.keyDim)),
-#             tf.reshape(state, (-1, self.maxLen * self.h * self.keyDim)),
-#         ]
-
-#     def compute_output_shape(self, input_shape):
-#         return input_shape
-
-
 class MiddleLayer(tf.keras.Model):
     def __init__(self, h, keyDim, maxLen, use_causal_mask=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         dModel = h * keyDim
+        self.dModel = dModel
         self.dModelLen = dModel * maxLen
+        self.maxLen = maxLen
+        self.masks = (
+            tf.linalg.LinearOperatorLowerTriangular(
+                tf.ones((maxLen, maxLen))
+            ).to_dense()
+            if use_causal_mask
+            else tf.ones((maxLen, maxLen))
+        )
         self.reshape0 = tf.keras.layers.Reshape(target_shape=(-1, maxLen * dModel))
         self.rnn = tf.keras.layers.GRU(
             dModel * maxLen,
@@ -271,6 +238,7 @@ class MiddleLayer(tf.keras.Model):
             return_state=True,
         )
         self.reshape1 = tf.keras.layers.Reshape(target_shape=(-1, maxLen, dModel))
+        self.concat = tf.keras.layers.Concatenate(2)
 
     def build(self, input_shapes):
         input_shape = input_shapes[0]
@@ -278,13 +246,25 @@ class MiddleLayer(tf.keras.Model):
         self.reshape0.build(input_shape)
         self.rnn.build(computed)
         self.reshape1.build(computed)
+        self.concat.build(
+            (
+                input_shape[0:2] + (None,) + input_shape[3:],
+                input_shape[0:2] + (1,) + input_shape[3:],
+            )
+        )
 
     def call(self, *inputs):
         input = inputs[0]
         initialState = inputs[1] if len(inputs) == 2 else None
-        ret = self.reshape0(input)
-        ret, state = self.rnn(ret, initial_state=initialState)
-        ret = self.reshape1(ret)
+        ret = tf.constant(0.0, "float32", input.shape[0:2] + (0,) + input.shape[3:])
+        for i in range(self.maxLen):
+            c, state = self.rnn(
+                self.reshape0(
+                    input * self.masks[i][tf.newaxis, tf.newaxis, :, tf.newaxis]
+                ),
+                initial_state=initialState,
+            )
+            ret = self.concat((ret, self.reshape1(c)[:, :, i : i + 1, :]))
         return ret, state
 
     def compute_output_shape(self, input_shapes):
@@ -759,8 +739,8 @@ def predict():
         bridgeRNNOutput = tf.reshape(
             models["bridgeRNNLayer"](
                 tf.tile(
-                    tf.reshape(encoderRNNOutput, (batchSize, 1, maxLen * 32)),
-                    (1, decoderInput.shape[1], 1),
+                    tf.reshape(encoderRNNOutput, (batchSize, 1, maxLen, 32)),
+                    (1, decoderInput.shape[1], 1, 1),
                 )
             )[0],
             (batchSize, -1, maxLen, 32),
@@ -874,7 +854,7 @@ def predict():
         outputs.append(decoderArgmax[i].numpy())
 
 
-with open("./weights/weight-2.jsonl") as f:
+with open("./weights/weight-1.jsonl") as f:
     weights = load("".join(f.readlines()))
 models["trainer"].set_weights(weights)
 # toSave = save(models["trainer"])
