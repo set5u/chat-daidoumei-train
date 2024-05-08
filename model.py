@@ -367,10 +367,10 @@ def useExtendedTransformer(
     encoderRNN, _ = encoderRNNLayer(encoderReshape2)
     encoderReshape3 = tf.keras.layers.Reshape(target_shape=(maxLen, dModel))(encoderRNN)
     decoderInput = tf.keras.Input(shape=(decoderRecurrentCount, maxLen))
-    decoderStandaloneInput = tf.keras.Input(
+    decoderStandaloneRNNInput = tf.keras.Input(
         shape=(decoderRecurrentCount, maxLen, dModel)
     )
-    decoderStandaloneRNNInput = tf.keras.Input(
+    decoderStandaloneInput = tf.keras.Input(
         shape=(decoderRecurrentCount, maxLen, dModel),
     )
     decoderStandaloneMaskInput = tf.keras.Input(
@@ -398,7 +398,7 @@ def useExtendedTransformer(
     decoderMiddleLayerStateInputs = []
     decoderMiddleLayerStateOutputs = []
     lastDecoderOutput = decoderPositionalEncoding
-    lastDecoderStandaloneOutput = decoderStandaloneRNNInput
+    lastDecoderStandaloneOutput = decoderStandaloneInput
     decoderBypass = []
     decoderStandaloneBypass = []
     for i in range(layers):
@@ -413,7 +413,7 @@ def useExtendedTransformer(
         concattedStandaloneInput = concattedInputLayer(
             [
                 lastDecoderStandaloneOutput,
-                decoderStandaloneInput,
+                decoderStandaloneRNNInput,
                 decoderStandaloneMaskInput[:, :, :, tf.newaxis],
             ]
         )
@@ -468,9 +468,9 @@ def useExtendedTransformer(
     )
     decoder = tf.keras.Model(
         inputs=[
-            decoderStandaloneRNNInput,
-            decoderStandaloneMaskInput,
             decoderStandaloneInput,
+            decoderStandaloneMaskInput,
+            decoderStandaloneRNNInput,
         ]
         + decoderMiddleLayerStateInputs,
         outputs=[decoderStandaloneDense] + decoderMiddleLayerStateOutputs,
@@ -685,9 +685,9 @@ def predict():
                 )
                 decoderOutput, *newDecoderState = models["decoder"](
                     [
-                        bridgeRNNOutput,
-                        decoderMask,
                         tempDecoderInput,
+                        decoderMask,
+                        bridgeRNNOutput,
                     ]
                     + decoderState
                 )
@@ -695,10 +695,13 @@ def predict():
                 result = tf.argmax(decoderOutput[0][0], 1)[k].numpy()
                 decoderInput.append(result)
                 print(num2char[result])
+                if result == 2:
+                    eos = True
+                    break
             decoderInput = decoderInput[8:]
             for i, decoderStateI in enumerate(newDecoderState):
                 decoderState[i] = tf.reshape(decoderStateI, (1, maxLen * 32))
-        break
+        encoderInput.extend(decoderInput[1:] + [2])
 
 
 with open("./weights/weight-1.jsonl") as f:
