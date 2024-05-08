@@ -604,269 +604,101 @@ def train():
 
 def predict():
     batchSize = 1
-    prompt = "数学やった?"
-    encoderInput = [3, 51, 51, 454, 703, 5]
+    prompt = "20240509"
+    encoderInput = [4]
+    constantPositionalEncoding = positionalEncoding(maxLen, 32)[
+        tf.newaxis, tf.newaxis, :, :
+    ]
     for c in prompt:
         encoderInput.append(char2num[c])
-
-    encoderInput.extend(
-        [0]
-        * (math.floor(len(encoderInput) / maxLen) * maxLen + maxLen - len(encoderInput))
-    )
-    encoderInput = np.array(encoderInput).reshape(
-        [1, len(encoderInput) // maxLen, maxLen]
-    )
-    if len(encoderInput[0]) < 2:
-        encoderInput = np.append(encoderInput, [[[0] * maxLen]], 0)
-    encoderInput = tf.tile(encoderInput, [batchSize, 1, 1])
-    encoderOutput = models["encoder"](
-        (
-            encoderInput,
-            tf.zeros(
+    encoderInput.append(2)
+    encoderState = [tf.zeros((batchSize, maxLen * 32))] * 16
+    encoderRNNState = tf.zeros((batchSize, maxLen * 32))
+    while True:
+        while len(encoderInput) > 8:
+            tempEncoderInput = tf.reshape(
                 (
-                    batchSize,
-                    maxLen * 32,
-                )
-            ),
-            tf.zeros(
-                (
-                    batchSize,
-                    maxLen * 32,
-                )
-            ),
-            tf.zeros(
-                (
-                    batchSize,
-                    maxLen * 32,
-                )
-            ),
-            tf.zeros(
-                (
-                    batchSize,
-                    maxLen * 32,
-                )
-            ),
-            tf.zeros(
-                (
-                    batchSize,
-                    maxLen * 32,
-                )
-            ),
-            tf.zeros(
-                (
-                    batchSize,
-                    maxLen * 32,
-                )
-            ),
-            tf.zeros(
-                (
-                    batchSize,
-                    maxLen * 32,
-                )
-            ),
-            tf.zeros(
-                (
-                    batchSize,
-                    maxLen * 32,
-                )
-            ),
-            tf.zeros(
-                (
-                    batchSize,
-                    maxLen * 32,
-                )
-            ),
-            tf.zeros(
-                (
-                    batchSize,
-                    maxLen * 32,
-                )
-            ),
-            tf.zeros(
-                (
-                    batchSize,
-                    maxLen * 32,
-                )
-            ),
-            tf.zeros(
-                (
-                    batchSize,
-                    maxLen * 32,
-                )
-            ),
-            tf.zeros(
-                (
-                    batchSize,
-                    maxLen * 32,
-                )
-            ),
-            tf.zeros(
-                (
-                    batchSize,
-                    maxLen * 32,
-                )
-            ),
-            tf.zeros(
-                (
-                    batchSize,
-                    maxLen * 32,
-                )
-            ),
-            tf.zeros(
-                (
-                    batchSize,
-                    maxLen * 32,
-                )
-            ),
-        )
-    )
-    encoderRNNOutput = tf.reshape(
-        models["encoderRNNLayer"](
-            tf.reshape(encoderOutput[0], [batchSize, -1, maxLen * 32])
-        )[0],
-        [batchSize, maxLen, -1],
-    )
-    outputs = [1]
-    for i in range(32):
-        decoderInput = outputs.copy()
-        decoderInput.extend(
-            [0]
-            * (
-                math.floor(len(decoderInput) / maxLen) * maxLen
-                + maxLen
-                - len(decoderInput)
+                    encoderInput
+                    + [0]
+                    * (
+                        (len(encoderInput) // maxLen) * maxLen
+                        + maxLen
+                        - len(encoderInput)
+                    )
+                )[0:8],
+                (batchSize, 1, 8),
             )
-        )
-
-        decoderInput = np.array(decoderInput).reshape(
-            [len(decoderInput) // maxLen, maxLen]
-        )
-        if len(decoderInput) < 2:
-            decoderInput = np.append(decoderInput, [[0] * maxLen], 0)
-        decoderInput = decoderInput[tf.newaxis, :, :]
-        decoderInput = np.tile(decoderInput, [batchSize, 1, 1])
-        decoderPositionalEncodingOutput = models["decoderEmbeddingLayer"](
-            decoderInput
-        ) + np.tile(
-            positionalEncoding(maxLen, 32)[tf.newaxis, tf.newaxis, :, :],
-            (batchSize, len(decoderInput[0]), 1, 1),
-        )
-        bridgeRNNOutput = tf.reshape(
-            models["bridgeRNNLayer"](
-                tf.tile(
-                    tf.reshape(encoderRNNOutput, (batchSize, 1, maxLen, 32)),
-                    (1, decoderInput.shape[1], 1, 1),
-                )
-            )[0],
-            (batchSize, -1, maxLen, 32),
-        )
-        decoderLayerOutput = models["decoder"](
+            encoderInput = encoderInput[8:]
+            encoderOutput, *encoderState = models["encoder"](
+                [tempEncoderInput] + encoderState
+            )
+            for i, encoderStateI in enumerate(encoderState):
+                encoderState[i] = tf.reshape(encoderStateI, (1, maxLen * 32))
+            _, encoderRNNState = models["encoderRNNLayer"](
+                tf.reshape(encoderOutput, (batchSize, -1, maxLen * 32)),
+                initial_state=encoderRNNState,
+            )
+            encoderRNNState = tf.reshape(encoderRNNState, (batchSize, -1))
+        tempEncoderInput = tf.reshape(
             (
-                decoderPositionalEncodingOutput,
-                tf.minimum(decoderInput, tf.ones_like(decoderInput)),
-                bridgeRNNOutput,
-                tf.zeros(
-                    (
-                        batchSize,
-                        maxLen * 32,
-                    )
-                ),
-                tf.zeros(
-                    (
-                        batchSize,
-                        maxLen * 32,
-                    )
-                ),
-                tf.zeros(
-                    (
-                        batchSize,
-                        maxLen * 32,
-                    )
-                ),
-                tf.zeros(
-                    (
-                        batchSize,
-                        maxLen * 32,
-                    )
-                ),
-                tf.zeros(
-                    (
-                        batchSize,
-                        maxLen * 32,
-                    )
-                ),
-                tf.zeros(
-                    (
-                        batchSize,
-                        maxLen * 32,
-                    )
-                ),
-                tf.zeros(
-                    (
-                        batchSize,
-                        maxLen * 32,
-                    )
-                ),
-                tf.zeros(
-                    (
-                        batchSize,
-                        maxLen * 32,
-                    )
-                ),
-                tf.zeros(
-                    (
-                        batchSize,
-                        maxLen * 32,
-                    )
-                ),
-                tf.zeros(
-                    (
-                        batchSize,
-                        maxLen * 32,
-                    )
-                ),
-                tf.zeros(
-                    (
-                        batchSize,
-                        maxLen * 32,
-                    )
-                ),
-                tf.zeros(
-                    (
-                        batchSize,
-                        maxLen * 32,
-                    )
-                ),
-                tf.zeros(
-                    (
-                        batchSize,
-                        maxLen * 32,
-                    )
-                ),
-                tf.zeros(
-                    (
-                        batchSize,
-                        maxLen * 32,
-                    )
-                ),
-                tf.zeros(
-                    (
-                        batchSize,
-                        maxLen * 32,
-                    )
-                ),
-                tf.zeros(
-                    (
-                        batchSize,
-                        maxLen * 32,
-                    )
-                ),
-            )
+                encoderInput
+                + [0]
+                * ((len(encoderInput) // maxLen) * maxLen + maxLen - len(encoderInput))
+            )[0:8],
+            (batchSize, 1, 8),
         )
-        decoderOutput = tf.argmax(decoderLayerOutput[0], 3)
-        decoderArgmax = tf.reshape(decoderOutput[0], (-1,))
-        print(num2char[decoderArgmax[i]], end="")
-        outputs.append(decoderArgmax[i].numpy())
+        encoderInput = encoderInput[8:]
+        encoderOutput, *_ = models["encoder"]([tempEncoderInput] + encoderState)
+        encoderRNNOutput, _ = models["encoderRNNLayer"](
+            tf.reshape(encoderOutput, (batchSize, -1, maxLen * 32)),
+            initial_state=encoderRNNState,
+        )
+        encoderRNNOutput = tf.reshape(encoderRNNOutput, (batchSize, 1, maxLen, 32))
+        decoderInput = [1]
+        bridgeRNNState = tf.zeros((batchSize, maxLen * 32))
+        decoderState = [tf.zeros((batchSize, maxLen * 32))] * 16
+        eos = False
+        while True:
+            if eos:
+                break
+            bridgeRNNOutput, bridgeRNNState = models["bridgeRNNLayer"](
+                encoderRNNOutput, bridgeRNNState
+            )
+            bridgeRNNState = tf.reshape(bridgeRNNState, (1, maxLen * 32))
+            for k in range(8):
+                tempDecoderInput = tf.reshape(
+                    (
+                        decoderInput
+                        + [0]
+                        * (
+                            (len(decoderInput) // maxLen) * maxLen
+                            + maxLen
+                            - len(decoderInput)
+                        )
+                    )[0:8],
+                    (batchSize, 1, 8),
+                )
+                decoderMask = tf.minimum(tempDecoderInput, 1)
+                tempDecoderInput = (
+                    models["decoderEmbeddingLayer"](tempDecoderInput)
+                    + constantPositionalEncoding
+                )
+                decoderOutput, *newDecoderState = models["decoder"](
+                    [
+                        bridgeRNNOutput,
+                        decoderMask,
+                        tempDecoderInput,
+                    ]
+                    + decoderState
+                )
+
+                result = tf.argmax(decoderOutput[0][0], 1)[k].numpy()
+                decoderInput.append(result)
+                print(num2char[result])
+            decoderInput = decoderInput[8:]
+            for i, decoderStateI in enumerate(newDecoderState):
+                decoderState[i] = tf.reshape(decoderStateI, (1, maxLen * 32))
+        break
 
 
 with open("./weights/weight-1.jsonl") as f:
