@@ -224,6 +224,7 @@ class MiddleLayer(tf.keras.Model):
         self.dModel = dModel
         self.dModelLen = dModel * maxLen
         self.maxLen = maxLen
+        self.use_causal_mask = use_causal_mask
         self.masks = (
             tf.linalg.LinearOperatorLowerTriangular(
                 tf.ones((maxLen, maxLen))
@@ -256,15 +257,29 @@ class MiddleLayer(tf.keras.Model):
     def call(self, *inputs):
         input = inputs[0]
         initialState = inputs[1] if len(inputs) == 2 else None
-        ret = tf.constant(0.0, "float32", input.shape[0:2] + (0,) + input.shape[3:])
-        for i in range(self.maxLen):
-            c, state = self.rnn(
-                self.reshape0(
-                    input * self.masks[i][tf.newaxis, tf.newaxis, :, tf.newaxis]
-                ),
+        if self.use_causal_mask:
+            ret = tf.constant(
+                0.0,
+                "float32",
+                (batchSize if input.shape[0] is None else input.shape[0],)
+                + input.shape[1:2]
+                + (0,)
+                + input.shape[3:],
+            )
+            for i in range(self.maxLen):
+                c, state = self.rnn(
+                    self.reshape0(
+                        input * self.masks[i][tf.newaxis, tf.newaxis, :, tf.newaxis]
+                    ),
+                    initial_state=initialState,
+                )
+                ret = self.concat((ret, self.reshape1(c)[:, :, i : i + 1, :]))
+        else:
+            ret, state = self.rnn(
+                self.reshape0(input),
                 initial_state=initialState,
             )
-            ret = self.concat((ret, self.reshape1(c)[:, :, i : i + 1, :]))
+            ret = self.reshape1(ret)
         return ret, state
 
     def compute_output_shape(self, input_shapes):
