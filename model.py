@@ -655,6 +655,7 @@ def predict():
         )
         encoderRNNOutput = tf.reshape(encoderRNNOutput, (batchSize, 1, maxLen, 32))
         decoderInput = [1]
+        decoderOutputTokens = []
         bridgeRNNState = tf.zeros((batchSize, maxLen * 32))
         decoderState = [tf.zeros((batchSize, maxLen * 32))] * 16
         eos = False
@@ -691,17 +692,31 @@ def predict():
                     ]
                     + decoderState
                 )
-
-                result = tf.argmax(decoderOutput[0][0], 1)[k].numpy()
+                resultSorted = tf.argsort(decoderOutput[0][0], 1)[k]
+                results = []
+                sum = 0
+                for l in range(5):
+                    c = decoderOutput[0][0][k][resultSorted[~l]].numpy()
+                    sum += c
+                    results.append(c)
+                r = random.random() * sum
+                t = 0
+                m = 0
+                while t < r:
+                    t += results[m]
+                    m += 1
+                result = resultSorted[~m + 1]
                 decoderInput.append(result)
-                print(num2char[result])
+                decoderOutputTokens.append(result)
+                print(num2char[result], end="")
                 if result == 2:
                     eos = True
                     break
             decoderInput = decoderInput[8:]
             for i, decoderStateI in enumerate(newDecoderState):
                 decoderState[i] = tf.reshape(decoderStateI, (1, maxLen * 32))
-        encoderInput.extend(decoderInput[1:] + [2])
+        encoderInput.extend(decoderOutputTokens)
+        print()
 
 
 with open("./weights/weight-1.jsonl") as f:
