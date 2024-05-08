@@ -708,7 +708,7 @@ def predict():
                 result = resultSorted[~m + 1]
                 decoderInput.append(result)
                 decoderOutputTokens.append(result)
-                print(num2char[result], end="")
+                print(num2char[result], end="", flush=True)
                 if result == 2:
                     eos = True
                     break
