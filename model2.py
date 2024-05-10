@@ -7,7 +7,7 @@ import random
 
 batchSize = 16
 numRecur = 8
-log4Size = None  # 256,64,16,4 = 4
+log4Size = 3  # 256,64,16,4 = 3
 
 constantSize = None
 
@@ -267,7 +267,7 @@ class Averager(tf.keras.Model):
 class AveragedTiler(tf.keras.Model):
     supports_masking = True
 
-    def __init__(self, level=None, *args, **kwargs):
+    def __init__(self, level, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.level = level
 
@@ -275,7 +275,7 @@ class AveragedTiler(tf.keras.Model):
         cLevel = math.floor(math.log2(input.shape[1] - 0.1) / 2)
         ret = [input]
         i = cLevel + 2
-        while self.level is not None and self.level > i - 2:
+        while self.level > i - 2:
             r = ret[0]
             size = 4**i
             r = upscaleTensor(r, size)
@@ -299,6 +299,18 @@ class AveragedTiler(tf.keras.Model):
         return input_shape[0:1] + (None,) + input_shape[1:]
 
 
+class ConverterInputReshaper(tf.keras.Model):
+    supports_masking = True
+
+    def call(self, input):
+        return tf.reshape(
+            input, (input.shape[0], -1, input.shape[2] ** 3, input.shape[4])
+        )
+
+    def compute_output_shape(self, input_shape):
+        return input_shape[0:1] + (None, input_shape[2] ** 3) + input_shape[4:]
+
+
 def useConverter(dModel, h, pDropout, layers):
     pass
 
@@ -312,6 +324,7 @@ def useRecursiveTransformer(
     depth,
     layers,
     numRecur,
+    log4Size,
 ):
     encoderInput = tf.keras.Input(shape=(constantSize,))
     encoderMask = tf.keras.layers.Minimum()([encoderInput, tf.constant([1.0])])
@@ -325,7 +338,7 @@ def useRecursiveTransformer(
     encoderAverageTiler = AveragedTiler(log4Size)(encoderInvSoftmax)
 
 
-models = useRecursiveTransformer(32, 4, 0.1, 2300, 2300, 1024, 16, numRecur)
+models = useRecursiveTransformer(32, 4, 0.1, 2300, 2300, 1024, 16, numRecur, log4Size)
 print(models)
 
 
