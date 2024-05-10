@@ -217,6 +217,31 @@ class InvSoftmaxTiler(tf.keras.Model):
         return [input_shape[0], input_shape[1], input_shape[1]]
 
 
+def upscaleTensor(r, size):
+    r = tf.reshape(r, (-1, (size // 4) ** 3, 1, 1, 1))
+    r = tf.tile(r, (1, 1, 4, 4, 4))
+    r = tf.reshape(r, (-1, (size // 4) ** 2, size, 4, 4))
+    r = tf.transpose(r, (0, 2, 1, 3, 4))
+    r = tf.reshape(r, (-1, size, (size // 4) ** 1, size, 4))
+    r = tf.transpose(r, (0, 1, 3, 2, 4))
+    r = tf.reshape(r, (-1, size, size, size))
+    r = tf.transpose(r, (0, 3, 2, 1))
+    return r
+
+
+def downscaleTensor(r, size):
+
+    r = tf.reshape(r, (-1, size, size, size // 4, 4))
+    r = tf.transpose(r, (0, 1, 3, 2, 4))
+    r = tf.reshape(r, (-1, size, (size // 4) ** 2, 4, 4))
+    r = tf.transpose(r, (0, 2, 1, 3, 4))
+    r = tf.reshape(r, (-1, (size // 4) ** 3, 4, 4, 4))
+    r = tf.reduce_sum(r, (2, 3, 4)) / 64
+    r = tf.reshape(r, (-1, size // 4, size // 4, size // 4))
+    r = tf.transpose(r, (0, 3, 2, 1))
+    return r
+
+
 class Averager(tf.keras.Model):
     supports_masking = True
 
@@ -228,24 +253,10 @@ class Averager(tf.keras.Model):
             r = tf.transpose(input, (1, 0, 2, 3, 4))[j]
             for i in range(j):
                 size = 4 ** (level - i + 1)
-                r = tf.reshape(r, (-1, size, size, size // 4, 4))
-                r = tf.transpose(r, (0, 1, 3, 2, 4))
-                r = tf.reshape(r, (-1, size, (size // 4) ** 2, 4, 4))
-                r = tf.transpose(r, (0, 2, 1, 3, 4))
-                r = tf.reshape(r, (-1, (size // 4) ** 3, 4, 4, 4))
-                r = tf.reduce_sum(r, (2, 3, 4)) / 64
-                r = tf.reshape(r, (-1, size // 4, size // 4, size // 4))
-                r = tf.transpose(r, (0, 3, 2, 1))
+                r = downscaleTensor(r, size)
             for i in range(j):
-                size = 4 ** ((level - i) + j)
-                r = tf.reshape(r, (-1, (size // 4) ** 3, 1, 1, 1))
-                r = tf.tile(r, (1, 1, 4, 4, 4))
-                r = tf.reshape(r, (-1, (size // 4) ** 2, size, 4, 4))
-                r = tf.transpose(r, (0, 2, 1, 3, 4))
-                r = tf.reshape(r, (-1, size, (size // 4) ** 1, size, 4))
-                r = tf.transpose(r, (0, 1, 3, 2, 4))
-                r = tf.reshape(r, (-1, size, size, size))
-                r = tf.transpose(r, (0, 3, 2, 1))
+                r = size = 4 ** ((level - i) + j)
+                upscaleTensor(r, size)
             ret.append(r)
         return tf.transpose(ret, (1, 0, 2, 3, 4))
 
@@ -267,41 +278,20 @@ class AveragedTiler(tf.keras.Model):
         while self.level is not None and self.level > i - 2:
             r = ret[0]
             size = 4**i
-            r = tf.reshape(r, (-1, (size // 4) ** 3, 1, 1, 1))
-            r = tf.tile(r, (1, 1, 4, 4, 4))
-            r = tf.reshape(r, (-1, (size // 4) ** 2, size, 4, 4))
-            r = tf.transpose(r, (0, 2, 1, 3, 4))
-            r = tf.reshape(r, (-1, size, (size // 4) ** 1, size, 4))
-            r = tf.transpose(r, (0, 1, 3, 2, 4))
-            r = tf.reshape(r, (-1, size, size, size))
-            r = tf.transpose(r, (0, 3, 2, 1))
+            r = upscaleTensor(size, r)
             ret.insert(0, r)
             i += 1
         while cLevel > 0:
             size = 4 ** (cLevel + 1)
             r = ret[-1]
-            r = tf.reshape(r, (-1, size, size, size // 4, 4))
-            r = tf.transpose(r, (0, 1, 3, 2, 4))
-            r = tf.reshape(r, (-1, size, (size // 4) ** 2, 4, 4))
-            r = tf.transpose(r, (0, 2, 1, 3, 4))
-            r = tf.reshape(r, (-1, (size // 4) ** 3, 4, 4, 4))
-            r = tf.reduce_sum(r, (2, 3, 4)) / 64
-            r = tf.reshape(r, (-1, size // 4, size // 4, size // 4))
-            r = tf.transpose(r, (0, 3, 2, 1))
+            r = downscaleTensor(size, r)
             ret.append(r)
             cLevel -= 1
         for i in range(self.level):
             r = ret[i + 1]
             for j in range(i + 1):
                 size = 4 ** (len(ret) - i + j)
-                r = tf.reshape(r, (-1, (size // 4) ** 3, 1, 1, 1))
-                r = tf.tile(r, (1, 1, 4, 4, 4))
-                r = tf.reshape(r, (-1, (size // 4) ** 2, size, 4, 4))
-                r = tf.transpose(r, (0, 2, 1, 3, 4))
-                r = tf.reshape(r, (-1, size, (size // 4) ** 1, size, 4))
-                r = tf.transpose(r, (0, 1, 3, 2, 4))
-                r = tf.reshape(r, (-1, size, size, size))
-                r = tf.transpose(r, (0, 3, 2, 1))
+                r = upscaleTensor(size, r)
             ret[i + 1] = r
         return tf.transpose(ret, (1, 0, 2, 3, 4))
 
