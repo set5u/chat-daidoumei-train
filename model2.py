@@ -8,8 +8,7 @@ import random
 batchSize = 16
 numRecur = 8
 log4Size = 3  # 256,64,16,4 = 3
-
-constantSize = None
+timeSteps = None
 
 
 def save(model):
@@ -207,15 +206,13 @@ class InvSoftmax(tf.keras.Model):
         return input_shapes
 
 
-class InvSoftmaxTilerReshaper(tf.keras.Model):
+class InvSoftmaxTiler(tf.keras.Model):
     supports_masking = True
 
     def call(self, input):
         return tf.tile(
-            tf.reshape(input, (input.shape[0], -1, input.shape[1], input.shape[2]))[
-                :, :, tf.newaxis
-            ],
-            (1, 1, input.shape[1]),
+            input[:, :, :, tf.newaxis],
+            (1, 1, 1, input.shape[1]),
         )
 
     def compute_output_shape(self, input_shape):
@@ -321,6 +318,19 @@ def useConverterCell(dModel, h, pDropout, layers):
     pass
 
 
+class ConverterCell(tf.keras.Model):
+    def __init__(self, dModel, h, pDropout, layers, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.state_size = layers * 2 * 4 * 4 * 4 * dModel
+        self.cell = useConverterCell(dModel, h, pDropout, layers)
+
+    def call(self, inputs):
+        return inputs
+
+    def compute_output_shape(self, inputShapes):
+        return inputShapes
+
+
 def useConverter(dModel, h, pDropout, layers):
     pass
 
@@ -336,28 +346,17 @@ def useRecursiveTransformer(
     numRecur,
     log4Size,
 ):
-    encoderInput = tf.keras.Input(shape=(constantSize,))
+    encoderInput = tf.keras.Input(shape=(timeSteps, 4 ** (log4Size + 1)))
     encoderMask = tf.keras.layers.Minimum()([encoderInput, tf.constant([1.0])])
-    encoderEmbedding = tf.keras.layers.Embedding(
-        input_dim=depthEncoder,
-        output_dim=depth,
-        mask_zero=True,
+    encoderEmbedding = tf.keras.layers.TimeDistributed(
+        tf.keras.layers.Embedding(
+            input_dim=depthEncoder, output_dim=depth, mask_zero=True
+        )
     )(encoderInput)
-    encoderInvSoftmaxTiler = InvSoftmaxTilerReshaper()(encoderEmbedding)
-    encoderInvSoftmax = tf.keras.layers.TimeDistributed(InvSoftmax())(
-        encoderInvSoftmaxTiler
-    )
-    encoderAverageTiler = tf.keras.layers.TimeDistributed(AveragedTiler(log4Size))(
-        encoderInvSoftmax
-    )
-    encoderReshape0 = tf.keras.layers.Reshape(
-        target_shape=(-1, (4 ** (log4Size + 1)) ** 3)
-    )(encoderAverageTiler)
-    encoder = useConverter(dModel, h, pDropout, layers)(encoderReshape0)
 
 
-# models = useRecursiveTransformer(32, 4, 0.1, 2300, 2300, 1024, 16, numRecur, log4Size)
-# print(models)
+models = useRecursiveTransformer(32, 4, 0.1, 2300, 2300, 256, 16, numRecur, log4Size)
+print(models)
 
 
 def draw_heatmap(data):
