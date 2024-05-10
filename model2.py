@@ -314,6 +314,23 @@ class AveragedTiler(tf.keras.Model):
         return input_shape[0:1] + (None,) + (input_shape[1] ** 3,)
 
 
+def useConverterCell(dModel, h, pDropout, log4Size):
+    pass
+
+
+class ConverterCell(tf.keras.Model):
+    def __init__(self, dModel, h, pDropout, log4Size, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cell = useConverterCell(dModel, h, pDropout, log4Size)
+        self.state_size = 2 * 4**log4Size * dModel
+
+    def call(self, inputs):
+        return self.cell(inputs)
+
+    def compute_output_shape(self, inputShape):
+        return inputShape
+
+
 def useConverter(dModel, h, pDropout, layers):
     pass
 
