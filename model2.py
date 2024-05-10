@@ -207,14 +207,19 @@ class InvSoftmax(tf.keras.Model):
         return input_shapes
 
 
-class InvSoftmaxTiler(tf.keras.Model):
+class InvSoftmaxTilerReshaper(tf.keras.Model):
     supports_masking = True
 
     def call(self, input):
-        return tf.tile(input[:, :, tf.newaxis], (1, 1, input.shape[1]))
+        return tf.tile(
+            tf.reshape(input, (input.shape[0], -1, input.shape[1], input.shape[2]))[
+                :, :, tf.newaxis
+            ],
+            (1, 1, input.shape[1]),
+        )
 
     def compute_output_shape(self, input_shape):
-        return [input_shape[0], input_shape[1], input_shape[1]]
+        return [input_shape[0], input_shape[1], input_shape[2], input_shape[2]]
 
 
 def upscaleTensor(r, size):
@@ -299,18 +304,6 @@ class AveragedTiler(tf.keras.Model):
         return input_shape[0:1] + (None,) + input_shape[1:]
 
 
-class ConverterInputReshaper(tf.keras.Model):
-    supports_masking = True
-
-    def call(self, input):
-        return tf.reshape(
-            input, (input.shape[0], -1, input.shape[2] ** 3, input.shape[4])
-        )
-
-    def compute_output_shape(self, input_shape):
-        return input_shape[0:1] + (None, input_shape[2] ** 3) + input_shape[4:]
-
-
 def useConverter(dModel, h, pDropout, layers):
     pass
 
@@ -333,9 +326,13 @@ def useRecursiveTransformer(
         output_dim=depth,
         mask_zero=True,
     )(encoderInput)
-    encoderInvSoftmaxTiler = InvSoftmaxTiler()(encoderEmbedding)
-    encoderInvSoftmax = InvSoftmax()(encoderInvSoftmaxTiler)
-    encoderAverageTiler = AveragedTiler(log4Size)(encoderInvSoftmax)
+    encoderInvSoftmaxTiler = InvSoftmaxTilerReshaper()(encoderEmbedding)
+    encoderInvSoftmax = tf.keras.layers.TimeDistributed(
+        InvSoftmax()(encoderInvSoftmaxTiler)
+    )
+    encoderAverageTiler = tf.keras.layers.TimeDistributed(
+        AveragedTiler(log4Size)(encoderInvSoftmax)
+    )
 
 
 models = useRecursiveTransformer(32, 4, 0.1, 2300, 2300, 1024, 16, numRecur, log4Size)
