@@ -7,7 +7,7 @@ import random
 
 batchSize = 16
 numRecur = 8
-log4Size = 3  # 256,64,16,4 = 3
+log4Size = 3  # 256,64,16,4 = 3, 1小さい値
 timeSteps = None
 
 
@@ -314,23 +314,6 @@ class AveragedTiler(tf.keras.Model):
         return input_shape[0:1] + (None,) + (input_shape[1] ** 3,)
 
 
-def useConverterCell(dModel, h, pDropout, layers):
-    pass
-
-
-class ConverterCell(tf.keras.Model):
-    def __init__(self, dModel, h, pDropout, layers, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.state_size = layers * 2 * 4 * 4 * 4 * dModel
-        self.cell = useConverterCell(dModel, h, pDropout, layers)
-
-    def call(self, inputs):
-        return inputs
-
-    def compute_output_shape(self, inputShapes):
-        return inputShapes
-
-
 def useConverter(dModel, h, pDropout, layers):
     pass
 
@@ -339,20 +322,20 @@ def useRecursiveTransformer(
     dModel,
     h,
     pDropout,
-    depthEncoder,
-    depthDecoder,
+    depthInput,
+    depthOutput,
     depth,
     layers,
     numRecur,
     log4Size,
 ):
-    encoderInput = tf.keras.Input(shape=(timeSteps, 4 ** (log4Size + 1)))
-    encoderMask = tf.keras.layers.Minimum()([encoderInput, tf.constant([1.0])])
-    encoderEmbedding = tf.keras.layers.TimeDistributed(
+    input = tf.keras.Input(shape=(timeSteps, 4 ** (log4Size + 1)))
+    mask = tf.keras.layers.Minimum()([input, tf.constant([1.0])])
+    embedding = tf.keras.layers.TimeDistributed(
         tf.keras.layers.Embedding(
-            input_dim=depthEncoder, output_dim=depth, mask_zero=True
+            input_dim=depthInput, output_dim=depth, mask_zero=True
         )
-    )(encoderInput)
+    )(input)
 
 
 models = useRecursiveTransformer(32, 4, 0.1, 2300, 2300, 256, 16, numRecur, log4Size)
@@ -367,13 +350,13 @@ def draw_heatmap(data):
     plt.show()
 
 
-s = 64
-tiler = AveragedTiler(3)
-x = tf.reshape(tf.argsort(tf.zeros((1 * s * s * s))), (1, s, s, s)) / (1 * s * s * s)
-draw_heatmap(tf.reduce_sum(x[0], 0))
-y = tiler(x)
-y = tf.reshape(y, (1, -1, 256, 256, 256))
-draw_heatmap(tf.reduce_sum(y[0][0], 0))
-draw_heatmap(tf.reduce_sum(y[0][1], 0))
-draw_heatmap(tf.reduce_sum(y[0][2], 0))
-draw_heatmap(tf.reduce_sum(y[0][3], 0))
+# s = 64
+# tiler = AveragedTiler(3)
+# x = tf.reshape(tf.argsort(tf.zeros((1 * s * s * s))), (1, s, s, s)) / (1 * s * s * s)
+# draw_heatmap(tf.reduce_sum(x[0], 0))
+# y = tiler(x)
+# y = tf.reshape(y, (1, -1, 256, 256, 256))
+# draw_heatmap(tf.reduce_sum(y[0][0], 0))
+# draw_heatmap(tf.reduce_sum(y[0][1], 0))
+# draw_heatmap(tf.reduce_sum(y[0][2], 0))
+# draw_heatmap(tf.reduce_sum(y[0][3], 0))
