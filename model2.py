@@ -278,20 +278,20 @@ class AveragedTiler(tf.keras.Model):
         while self.level is not None and self.level > i - 2:
             r = ret[0]
             size = 4**i
-            r = upscaleTensor(size, r)
+            r = upscaleTensor(r, size)
             ret.insert(0, r)
             i += 1
         while cLevel > 0:
             size = 4 ** (cLevel + 1)
             r = ret[-1]
-            r = downscaleTensor(size, r)
+            r = downscaleTensor(r, size)
             ret.append(r)
             cLevel -= 1
         for i in range(self.level):
             r = ret[i + 1]
             for j in range(i + 1):
                 size = 4 ** (len(ret) - i + j)
-                r = upscaleTensor(size, r)
+                r = upscaleTensor(r, size)
             ret[i + 1] = r
         return tf.transpose(ret, (1, 0, 2, 3, 4))
 
