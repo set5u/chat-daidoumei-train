@@ -298,10 +298,13 @@ class AveragedTiler(tf.keras.Model):
                 size = 4 ** (len(ret) - i + j)
                 r = upscaleTensor(r, size)
             ret[i + 1] = r
-        return tf.transpose(ret, (1, 0, 2, 3, 4))
+        return tf.reshape(
+            tf.transpose(ret, (1, 0, 2, 3, 4)),
+            (input.shape[0], -1, input.shape[1] ** 3),
+        )
 
     def compute_output_shape(self, input_shape):
-        return input_shape[0:1] + (None,) + input_shape[1:]
+        return input_shape[0:1] + (None,) + (input_shape[1] ** 3,)
 
 
 def useConverter(dModel, h, pDropout, layers):
@@ -327,12 +330,15 @@ def useRecursiveTransformer(
         mask_zero=True,
     )(encoderInput)
     encoderInvSoftmaxTiler = InvSoftmaxTilerReshaper()(encoderEmbedding)
-    encoderInvSoftmax = tf.keras.layers.TimeDistributed(
-        InvSoftmax()(encoderInvSoftmaxTiler)
+    encoderInvSoftmax = tf.keras.layers.TimeDistributed(InvSoftmax())(
+        encoderInvSoftmaxTiler
     )
-    encoderAverageTiler = tf.keras.layers.TimeDistributed(
-        AveragedTiler(log4Size)(encoderInvSoftmax)
+    encoderAverageTiler = tf.keras.layers.TimeDistributed(AveragedTiler(log4Size))(
+        encoderInvSoftmax
     )
+    encoderReshape0 = tf.keras.layers.Reshape(
+        target_shape=(-1, (4 ** (log4Size + 1)) ** 3)
+    )(encoderAverageTiler)
 
 
 models = useRecursiveTransformer(32, 4, 0.1, 2300, 2300, 1024, 16, numRecur, log4Size)
