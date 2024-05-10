@@ -222,9 +222,17 @@ class InvSoftmaxTilerReshaper(tf.keras.Model):
         return [input_shape[0], input_shape[1], input_shape[2], input_shape[2]]
 
 
-def upscaleTensor(r, size):
-    r = tf.reshape(r, (-1, (size // 4) ** 3, 1, 1, 1))
-    r = tf.tile(r, (1, 1, 4, 4, 4))
+def toTimebasedTensor(r, size):
+    r = tf.reshape(r, (-1, size, size, size // 4, 4))
+    r = tf.transpose(r, (0, 1, 3, 2, 4))
+    r = tf.reshape(r, (-1, size, (size // 4) ** 2, 4, 4))
+    r = tf.transpose(r, (0, 2, 1, 3, 4))
+    r = tf.reshape(r, (-1, (size // 4) ** 3, 4, 4, 4))
+    r = tf.transpose(r, (0, 1, 4, 3, 2))
+    return r
+
+
+def fromTimebasedTensor(r, size):
     r = tf.reshape(r, (-1, (size // 4) ** 2, size, 4, 4))
     r = tf.transpose(r, (0, 2, 1, 3, 4))
     r = tf.reshape(r, (-1, size, (size // 4) ** 1, size, 4))
@@ -234,13 +242,15 @@ def upscaleTensor(r, size):
     return r
 
 
-def downscaleTensor(r, size):
+def upscaleTensor(r, size):
+    r = tf.reshape(r, (-1, (size // 4) ** 3, 1, 1, 1))
+    r = tf.tile(r, (1, 1, 4, 4, 4))
+    r = fromTimebasedTensor(r, size)
+    return r
 
-    r = tf.reshape(r, (-1, size, size, size // 4, 4))
-    r = tf.transpose(r, (0, 1, 3, 2, 4))
-    r = tf.reshape(r, (-1, size, (size // 4) ** 2, 4, 4))
-    r = tf.transpose(r, (0, 2, 1, 3, 4))
-    r = tf.reshape(r, (-1, (size // 4) ** 3, 4, 4, 4))
+
+def downscaleTensor(r, size):
+    r = toTimebasedTensor(r, size)
     r = tf.reduce_sum(r, (2, 3, 4)) / 64
     r = tf.reshape(r, (-1, size // 4, size // 4, size // 4))
     r = tf.transpose(r, (0, 3, 2, 1))
@@ -300,11 +310,15 @@ class AveragedTiler(tf.keras.Model):
             ret[i + 1] = r
         return tf.reshape(
             tf.transpose(ret, (1, 0, 2, 3, 4)),
-            (input.shape[0], -1, input.shape[1] ** 3),
+            (input.shape[0], -1, (input.shape[1] * 4) ** 3),
         )
 
     def compute_output_shape(self, input_shape):
         return input_shape[0:1] + (None,) + (input_shape[1] ** 3,)
+
+
+def useConverterCell(dModel, h, pDropout, layers):
+    pass
 
 
 def useConverter(dModel, h, pDropout, layers):
@@ -339,10 +353,11 @@ def useRecursiveTransformer(
     encoderReshape0 = tf.keras.layers.Reshape(
         target_shape=(-1, (4 ** (log4Size + 1)) ** 3)
     )(encoderAverageTiler)
+    encoder = useConverter(dModel, h, pDropout, layers)(encoderReshape0)
 
 
-models = useRecursiveTransformer(32, 4, 0.1, 2300, 2300, 1024, 16, numRecur, log4Size)
-print(models)
+# models = useRecursiveTransformer(32, 4, 0.1, 2300, 2300, 1024, 16, numRecur, log4Size)
+# print(models)
 
 
 def draw_heatmap(data):
@@ -358,6 +373,7 @@ tiler = AveragedTiler(3)
 x = tf.reshape(tf.argsort(tf.zeros((1 * s * s * s))), (1, s, s, s)) / (1 * s * s * s)
 draw_heatmap(tf.reduce_sum(x[0], 0))
 y = tiler(x)
+y = tf.reshape(y, (1, -1, 256, 256, 256))
 draw_heatmap(tf.reduce_sum(y[0][0], 0))
 draw_heatmap(tf.reduce_sum(y[0][1], 0))
 draw_heatmap(tf.reduce_sum(y[0][2], 0))
