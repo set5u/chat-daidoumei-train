@@ -395,17 +395,17 @@ x = tf.reshape(tf.argsort(tf.zeros((1 * s * s * s))), (1, s, s, s)) / (1 * s * s
 # draw_heatmap(tf.reduce_sum(x[0], 0))
 y = tiler(x)
 y = tf.reshape(y, (1, -1, 256, 256, 256))
-draw_heatmap(tf.reduce_sum(y[0][0], 0))
+# draw_heatmap(tf.reduce_sum(y[0][0], 0))
 draw_heatmap(tf.reduce_sum(y[0][1], 0))
-draw_heatmap(tf.reduce_sum(y[0][2], 0))
-draw_heatmap(tf.reduce_sum(y[0][3], 0))
+# draw_heatmap(tf.reduce_sum(y[0][2], 0))
+# draw_heatmap(tf.reduce_sum(y[0][3], 0))
 averager = Averager()
 z = averager(y)
 z = tf.reshape(z, (1, -1, 256, 256, 256))
-draw_heatmap(tf.reduce_sum(z[0][0], 0))
+# draw_heatmap(tf.reduce_sum(z[0][0], 0))
 draw_heatmap(tf.reduce_sum(z[0][1], 0))
-draw_heatmap(tf.reduce_sum(z[0][2], 0))
-draw_heatmap(tf.reduce_sum(z[0][3], 0))
+# draw_heatmap(tf.reduce_sum(z[0][2], 0))
+# draw_heatmap(tf.reduce_sum(z[0][3], 0))
 
 # w = tf.reshape(tf.argsort(tf.zeros((1 * 64 * 64 * 64))), (1, 64, 64, 64)) / (
 #     1 * 64 * 64 * 64
