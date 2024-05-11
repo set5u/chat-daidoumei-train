@@ -290,13 +290,6 @@ class AveragedTiler(tf.keras.Model):
     def call(self, input):
         cLevel = math.floor(math.log2(input.shape[1] - 0.1) / 2)
         ret = [input]
-        i = cLevel + 2
-        while self.level > i - 2:
-            r = ret[0]
-            size = 4**i
-            r = upscaleTensor(r, size)
-            ret.insert(0, r)
-            i += 1
         while cLevel > 0:
             size = 4 ** (cLevel + 1)
             r = ret[-1]
@@ -391,7 +384,7 @@ def draw_heatmap(data):
 s = 256
 tiler = AveragedTiler(3)
 x = tf.reshape(tf.argsort(tf.zeros((1 * s * s * s))), (1, s, s, s)) / (1 * s * s * s)
-# draw_heatmap(tf.reduce_sum(x[0], 0))
+draw_heatmap(tf.reduce_sum(x[0], 0))
 y = tiler(x)
 y = tf.reshape(y, (1, -1, 256, 256, 256))
 draw_heatmap(tf.reduce_sum(y[0][0], 0))
