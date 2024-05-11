@@ -219,20 +219,19 @@ class InvSoftmaxTiler(tf.keras.Model):
         return [input_shape[0], input_shape[1], input_shape[2], input_shape[2]]
 
 
-def toTimebasedTensor(r, size):
-    r = tf.reshape(r, (-1, size, size, size // 4, 4))
+def toTimebasedTensor(r, size, base=4):
+    r = tf.reshape(r, (-1, size, size, size // base, base))
     r = tf.transpose(r, (0, 1, 3, 2, 4))
-    r = tf.reshape(r, (-1, size, (size // 4) ** 2, 4, 4))
+    r = tf.reshape(r, (-1, size, (size // base) ** 2, base, base))
     r = tf.transpose(r, (0, 2, 1, 3, 4))
-    r = tf.reshape(r, (-1, (size // 4) ** 3, 4, 4, 4))
-    r = tf.transpose(r, (0, 1, 4, 3, 2))
+    r = tf.reshape(r, (-1, (size // base) ** 3, base, base, base))
     return r
 
 
-def fromTimebasedTensor(r, size):
-    r = tf.reshape(r, (-1, (size // 4) ** 2, size, 4, 4))
+def fromTimebasedTensor(r, size, base=4):
+    r = tf.reshape(r, (-1, (size // base) ** 2, size, base, base))
     r = tf.transpose(r, (0, 2, 1, 3, 4))
-    r = tf.reshape(r, (-1, size, (size // 4) ** 1, size, 4))
+    r = tf.reshape(r, (-1, size, size // base, size, base))
     r = tf.transpose(r, (0, 1, 3, 2, 4))
     r = tf.reshape(r, (-1, size, size, size))
     r = tf.transpose(r, (0, 3, 2, 1))
@@ -259,16 +258,19 @@ class Averager(tf.keras.Model):
 
     def call(self, input):
         level = input.shape[1]
-        ret = []
         input = tf.transpose(input, (1, 0, 2, 3, 4))
-        for j in range(level):
+        ret = [input[0]]
+        for i in range(level - 1):
+            j = i + 1
             r = input[j]
-            for i in range(j):
-                size = 4 ** (level - i)
+            size = 4**level
+            base = 4 ** (level - j)
+            r = fromTimebasedTensor(r, size, base)
+            for k in range(j):
+                size = 4 ** (level - k)
                 r = downscaleTensor(r, size)
-            for i in range(j):
-                size = 4 ** (i + level - j + 1)
-                r = upscaleTensor(r, size)
+            for k in range(j):
+                r = tf.tile(r, (1, 4, 4, 4))
             ret.append(r)
         return tf.reshape(
             tf.transpose(ret, (1, 0, 2, 3, 4)),
@@ -309,7 +311,7 @@ class AveragedTiler(tf.keras.Model):
             ret[i + 1] = r
         return tf.reshape(
             tf.transpose(ret, (1, 0, 2, 3, 4)),
-            (input.shape[0], -1, (input.shape[2] * 4) ** 3),
+            (input.shape[0], -1, (4**self.level) ** 3),
         )
 
     def compute_output_shape(self, input_shape):
@@ -387,23 +389,24 @@ def draw_heatmap(data):
     plt.show()
 
 
-# s = 64
-# tiler = AveragedTiler(3)
-# x = tf.reshape(tf.argsort(tf.zeros((1 * s * s * s))), (1, s, s, s)) / (1 * s * s * s)
+s = 256
+tiler = AveragedTiler(3)
+x = tf.reshape(tf.argsort(tf.zeros((1 * s * s * s))), (1, s, s, s)) / (1 * s * s * s)
 # draw_heatmap(tf.reduce_sum(x[0], 0))
-# y = tiler(x)
-# y = tf.reshape(y, (1, -1, 256, 256, 256))
-# draw_heatmap(tf.reduce_sum(y[0][0], 0))
-# draw_heatmap(tf.reduce_sum(y[0][1], 0))
-# draw_heatmap(tf.reduce_sum(y[0][2], 0))
-# draw_heatmap(tf.reduce_sum(y[0][3], 0))
-# averager = Averager()
-# z = averager(y)
-# z = tf.reshape(z, (1, -1, 256, 256, 256))
-# draw_heatmap(tf.reduce_sum(z[0][0], 0))
-# draw_heatmap(tf.reduce_sum(z[0][1], 0))
-# draw_heatmap(tf.reduce_sum(z[0][2], 0))
-# draw_heatmap(tf.reduce_sum(z[0][3], 0))
+y = tiler(x)
+y = tf.reshape(y, (1, -1, 256, 256, 256))
+draw_heatmap(tf.reduce_sum(y[0][0], 0))
+draw_heatmap(tf.reduce_sum(y[0][1], 0))
+draw_heatmap(tf.reduce_sum(y[0][2], 0))
+draw_heatmap(tf.reduce_sum(y[0][3], 0))
+averager = Averager()
+z = averager(y)
+z = tf.reshape(z, (1, -1, 256, 256, 256))
+draw_heatmap(tf.reduce_sum(z[0][0], 0))
+draw_heatmap(tf.reduce_sum(z[0][1], 0))
+draw_heatmap(tf.reduce_sum(z[0][2], 0))
+draw_heatmap(tf.reduce_sum(z[0][3], 0))
+
 # w = tf.reshape(tf.argsort(tf.zeros((1 * 64 * 64 * 64))), (1, 64, 64, 64)) / (
 #     1 * 64 * 64 * 64
 # )
