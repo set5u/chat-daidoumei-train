@@ -220,32 +220,21 @@ class InvSoftmaxTiler(tf.keras.Model):
 
 
 def toTimebasedTensor(r, size, base=4):
-    f = False
-    if base > size // base:
-        base = size // base
-        f = True
     r = tf.reshape(r, (-1, size, size, size // base, base))
     r = tf.transpose(r, (0, 1, 3, 2, 4))
     r = tf.reshape(r, (-1, size, (size // base) ** 2, base, base))
     r = tf.transpose(r, (0, 2, 1, 3, 4))
     r = tf.reshape(r, (-1, (size // base) ** 3, base, base, base))
-    if f:
-        r = tf.transpose(r, (0, 3, 2, 1))
     return r
 
 
 def fromTimebasedTensor(r, size, base=4):
-    f = False
-    if base > size // base:
-        base = size // base
-        f = True
     r = tf.reshape(r, (-1, (size // base) ** 2, size, base, base))
     r = tf.transpose(r, (0, 2, 1, 3, 4))
-    r = tf.reshape(r, (-1, size, size // base, size, base))
+    r = tf.reshape(r, (-1, size, size, (size // base), base))
     r = tf.transpose(r, (0, 1, 3, 2, 4))
     r = tf.reshape(r, (-1, size, size, size))
-    if f:
-        r = tf.transpose(r, (0, 3, 2, 1))
+    r = tf.transpose(r, (0, 1, 3, 2))
     return r
 
 
@@ -253,7 +242,6 @@ def upscaleTensor(r, size):
     r = tf.reshape(r, (-1, (size // 4) ** 3, 1, 1, 1))
     r = tf.tile(r, (1, 1, 4, 4, 4))
     r = fromTimebasedTensor(r, size)
-    r = tf.transpose(r, (0, 3, 2, 1))
     return r
 
 
@@ -275,7 +263,7 @@ class Averager(tf.keras.Model):
         for i in range(level):
             r = input[i]
             size = 4**level
-            base = 4 ** (level - i)
+            base = 4**i
             r = fromTimebasedTensor(r, size, base)
             for k in range(i):
                 size = 4 ** (level - k)
@@ -383,9 +371,9 @@ def useRecursiveTransformer(
     invSoftmaxTiler = InvSoftmaxTiler()(embedding)
     invSoftmax = InvSoftmax()(invSoftmaxTiler)
     averagedTiler = AveragedTiler(log4Size)(invSoftmax)
-    converter = tf.keras.layers.RNN(
+    converter, _ = tf.keras.layers.RNN(
         Converter(dModel, h, pDropout, layers, log4Size), return_state=True
-    )
+    )(averagedTiler)
 
 
 models = useRecursiveTransformer(32, 4, 0.1, 2300, 2300, 16, numRecur, log4Size)
@@ -400,23 +388,23 @@ def draw_heatmap(data):
     plt.show()
 
 
-# s = 256
-# tiler = AveragedTiler(3)
-# x = tf.reshape(tf.argsort(tf.zeros((1 * s * s * s))), (1, s, s, s)) / (1 * s * s * s)
+s = 256
+tiler = AveragedTiler(3)
+x = tf.reshape(tf.argsort(tf.zeros((1 * s * s * s))), (1, s, s, s)) / (1 * s * s * s)
 # draw_heatmap(tf.reduce_sum(x[0], 0))
-# y = tiler(x)
-# y = tf.reshape(y, (1, -1, 256, 256, 256))
-# draw_heatmap(tf.reduce_sum(y[0][0], 0))
-# draw_heatmap(tf.reduce_sum(y[0][1], 0))
-# draw_heatmap(tf.reduce_sum(y[0][2], 0))
-# draw_heatmap(tf.reduce_sum(y[0][3], 0))
-# averager = Averager()
-# z = averager(y)
-# z = tf.reshape(z, (1, -1, 256, 256, 256))
-# draw_heatmap(tf.reduce_sum(z[0][0], 0))
-# draw_heatmap(tf.reduce_sum(z[0][1], 0))
-# draw_heatmap(tf.reduce_sum(z[0][2], 0))
-# draw_heatmap(tf.reduce_sum(z[0][3], 0))
+y = tiler(x)
+y = tf.reshape(y, (1, -1, 256, 256, 256))
+draw_heatmap(tf.reduce_sum(y[0][0], 0))
+draw_heatmap(tf.reduce_sum(y[0][1], 0))
+draw_heatmap(tf.reduce_sum(y[0][2], 0))
+draw_heatmap(tf.reduce_sum(y[0][3], 0))
+averager = Averager()
+z = averager(y)
+z = tf.reshape(z, (1, -1, 256, 256, 256))
+draw_heatmap(tf.reduce_sum(z[0][0], 0))
+draw_heatmap(tf.reduce_sum(z[0][1], 0))
+draw_heatmap(tf.reduce_sum(z[0][2], 0))
+draw_heatmap(tf.reduce_sum(z[0][3], 0))
 
 # w = tf.reshape(tf.argsort(tf.zeros((1 * 64 * 64 * 64))), (1, 64, 64, 64)) / (
 #     1 * 64 * 64 * 64
