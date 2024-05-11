@@ -310,8 +310,17 @@ class AveragedTiler(tf.keras.Model):
         return input_shape[0:1] + (None,) + ((4**self.level) ** 3,)
 
 
+class Splitter(tf.keras.Model):
+    def call(self, input):
+        return tf.split(input, 2, 1)
+
+    def compute_output_shape(self, inputShape):
+        return (inputShape[0:1] + (inputShape[1] // 2,) + inputShape[2:],) * 2
+
+
 def useConverterCell(dModel, h, pDropout, log4Size):
-    pass
+    input = tf.keras.layers.Input(shape=(timeSteps, 4**log4Size**3, 4**3 * dModel))
+    stateInput = tf.keras.layers.Input(shape=(2 * 4**log4Size * dModel))
 
 
 class ConverterCell(tf.keras.Model):
@@ -361,9 +370,9 @@ def useRecursiveTransformer(
             input_dim=depthInput, output_dim=4 ** (log4Size + 1), mask_zero=True
         )
     )(input)
-    invSoftmaxTiler = InvSoftmaxTiler()(embedding)
-    invSoftmax = InvSoftmax()(invSoftmaxTiler)
-    averagedTiler = AveragedTiler(log4Size)(invSoftmax)
+    invSoftmaxTiler = tf.keras.layers.TimeDistributed(InvSoftmaxTiler())(embedding)
+    invSoftmax = tf.keras.layers.TimeDistributed(InvSoftmax())(invSoftmaxTiler)
+    averagedTiler = tf.keras.layers.TimeDistributed(AveragedTiler(log4Size))(invSoftmax)
     converter, _ = tf.keras.layers.RNN(
         Converter(dModel, h, pDropout, layers, log4Size), return_state=True
     )(averagedTiler)
