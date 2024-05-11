@@ -220,20 +220,32 @@ class InvSoftmaxTiler(tf.keras.Model):
 
 
 def toTimebasedTensor(r, size, base=4):
+    f = False
+    if base > size // base:
+        base = size // base
+        f = True
     r = tf.reshape(r, (-1, size, size, size // base, base))
     r = tf.transpose(r, (0, 1, 3, 2, 4))
     r = tf.reshape(r, (-1, size, (size // base) ** 2, base, base))
     r = tf.transpose(r, (0, 2, 1, 3, 4))
     r = tf.reshape(r, (-1, (size // base) ** 3, base, base, base))
+    if f:
+        r = tf.transpose(r, (0, 3, 2, 1))
     return r
 
 
 def fromTimebasedTensor(r, size, base=4):
+    f = False
+    if base > size // base:
+        base = size // base
+        f = True
     r = tf.reshape(r, (-1, (size // base) ** 2, size, base, base))
     r = tf.transpose(r, (0, 2, 1, 3, 4))
     r = tf.reshape(r, (-1, size, size // base, size, base))
     r = tf.transpose(r, (0, 1, 3, 2, 4))
     r = tf.reshape(r, (-1, size, size, size))
+    if f:
+        r = tf.transpose(r, (0, 3, 2, 1))
     return r
 
 
