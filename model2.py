@@ -234,7 +234,6 @@ def fromTimebasedTensor(r, size, base=4):
     r = tf.reshape(r, (-1, size, size // base, size, base))
     r = tf.transpose(r, (0, 1, 3, 2, 4))
     r = tf.reshape(r, (-1, size, size, size))
-    r = tf.transpose(r, (0, 3, 2, 1))
     return r
 
 
@@ -242,6 +241,7 @@ def upscaleTensor(r, size):
     r = tf.reshape(r, (-1, (size // 4) ** 3, 1, 1, 1))
     r = tf.tile(r, (1, 1, 4, 4, 4))
     r = fromTimebasedTensor(r, size)
+    r = tf.transpose(r, (0, 3, 2, 1))
     return r
 
 
@@ -259,17 +259,16 @@ class Averager(tf.keras.Model):
     def call(self, input):
         level = input.shape[1]
         input = tf.transpose(input, (1, 0, 2, 3, 4))
-        ret = [input[0]]
-        for i in range(level - 1):
-            j = i + 1
-            r = input[j]
+        ret = []
+        for i in range(level):
+            r = input[i]
             size = 4**level
-            base = 4 ** (level - j)
+            base = 4 ** (level - i)
             r = fromTimebasedTensor(r, size, base)
-            for k in range(j):
+            for k in range(i):
                 size = 4 ** (level - k)
                 r = downscaleTensor(r, size)
-            for k in range(j):
+            for k in range(i):
                 r = tf.tile(r, (1, 4, 4, 4))
             ret.append(r)
         return tf.reshape(
@@ -389,21 +388,21 @@ def draw_heatmap(data):
     plt.show()
 
 
-s = 256
-tiler = AveragedTiler(3)
-x = tf.reshape(tf.argsort(tf.zeros((1 * s * s * s))), (1, s, s, s)) / (1 * s * s * s)
+# s = 256
+# tiler = AveragedTiler(3)
+# x = tf.reshape(tf.argsort(tf.zeros((1 * s * s * s))), (1, s, s, s)) / (1 * s * s * s)
 # draw_heatmap(tf.reduce_sum(x[0], 0))
-y = tiler(x)
-y = tf.reshape(y, (1, -1, 256, 256, 256))
+# y = tiler(x)
+# y = tf.reshape(y, (1, -1, 256, 256, 256))
 # draw_heatmap(tf.reduce_sum(y[0][0], 0))
-draw_heatmap(tf.reduce_sum(y[0][1], 0))
+# draw_heatmap(tf.reduce_sum(y[0][1], 0))
 # draw_heatmap(tf.reduce_sum(y[0][2], 0))
 # draw_heatmap(tf.reduce_sum(y[0][3], 0))
-averager = Averager()
-z = averager(y)
-z = tf.reshape(z, (1, -1, 256, 256, 256))
+# averager = Averager()
+# z = averager(y)
+# z = tf.reshape(z, (1, -1, 256, 256, 256))
 # draw_heatmap(tf.reduce_sum(z[0][0], 0))
-draw_heatmap(tf.reduce_sum(z[0][1], 0))
+# draw_heatmap(tf.reduce_sum(z[0][1], 0))
 # draw_heatmap(tf.reduce_sum(z[0][2], 0))
 # draw_heatmap(tf.reduce_sum(z[0][3], 0))
 
