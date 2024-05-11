@@ -260,17 +260,20 @@ class Averager(tf.keras.Model):
     def call(self, input):
         level = input.shape[1]
         ret = []
+        input = tf.transpose(input, (1, 0, 2, 3, 4))
         for j in range(level):
-            r = input
-            r = tf.transpose(input, (1, 0, 2, 3, 4))[j]
+            r = input[j]
             for i in range(j):
-                size = 4 ** (level - i + 1)
+                size = 4 ** (level - i)
                 r = downscaleTensor(r, size)
             for i in range(j):
-                r = size = 4 ** ((level - i) + j)
-                upscaleTensor(r, size)
+                size = 4 ** (i + level - j + 1)
+                r = upscaleTensor(r, size)
             ret.append(r)
-        return tf.transpose(ret, (1, 0, 2, 3, 4))
+        return tf.reshape(
+            tf.transpose(ret, (1, 0, 2, 3, 4)),
+            (input.shape[1], -1, input.shape[2] ** 3),
+        )
 
     def compute_output_shape(self, input_shape):
         return input_shape
@@ -302,16 +305,15 @@ class AveragedTiler(tf.keras.Model):
         for i in range(self.level):
             r = ret[i + 1]
             for j in range(i + 1):
-                size = 4 ** (len(ret) - i + j)
-                r = upscaleTensor(r, size)
+                r = tf.tile(r, (1, 4, 4, 4))
             ret[i + 1] = r
         return tf.reshape(
             tf.transpose(ret, (1, 0, 2, 3, 4)),
-            (input.shape[0], -1, (input.shape[1] * 4) ** 3),
+            (input.shape[0], -1, (input.shape[2] * 4) ** 3),
         )
 
     def compute_output_shape(self, input_shape):
-        return input_shape[0:1] + (None,) + (input_shape[1] ** 3,)
+        return input_shape[0:1] + (None,) + ((4**self.level) ** 3,)
 
 
 def useConverterCell(dModel, h, pDropout, log4Size):
@@ -331,8 +333,21 @@ class ConverterCell(tf.keras.Model):
         return inputShape
 
 
-def useConverter(dModel, h, pDropout, layers):
+def useConverter(dModel, h, pDropout, layers, log4Size):
     pass
+
+
+class Converter(tf.keras.Model):
+    def __init__(self, dModel, h, pDropout, layers, log4Size, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.converter = useConverter(dModel, h, pDropout, layers, log4Size)
+        self.state_size = 2 * 4**log4Size * dModel * layers
+
+    def call(self, inputs):
+        return self.converter(inputs)
+
+    def compute_output_shape(self, inputShape):
+        return inputShape
 
 
 def useRecursiveTransformer(
@@ -341,7 +356,6 @@ def useRecursiveTransformer(
     pDropout,
     depthInput,
     depthOutput,
-    depth,
     layers,
     numRecur,
     log4Size,
@@ -350,12 +364,18 @@ def useRecursiveTransformer(
     mask = tf.keras.layers.Minimum()([input, tf.constant([1.0])])
     embedding = tf.keras.layers.TimeDistributed(
         tf.keras.layers.Embedding(
-            input_dim=depthInput, output_dim=depth, mask_zero=True
+            input_dim=depthInput, output_dim=4 ** (log4Size + 1), mask_zero=True
         )
     )(input)
+    invSoftmaxTiler = InvSoftmaxTiler()(embedding)
+    invSoftmax = InvSoftmax()(invSoftmaxTiler)
+    averagedTiler = AveragedTiler(log4Size)(invSoftmax)
+    converter = tf.keras.layers.RNN(
+        Converter(dModel, h, pDropout, layers, log4Size), return_state=True
+    )
 
 
-models = useRecursiveTransformer(32, 4, 0.1, 2300, 2300, 256, 16, numRecur, log4Size)
+models = useRecursiveTransformer(32, 4, 0.1, 2300, 2300, 16, numRecur, log4Size)
 print(models)
 
 
@@ -377,3 +397,26 @@ def draw_heatmap(data):
 # draw_heatmap(tf.reduce_sum(y[0][1], 0))
 # draw_heatmap(tf.reduce_sum(y[0][2], 0))
 # draw_heatmap(tf.reduce_sum(y[0][3], 0))
+# averager = Averager()
+# z = averager(y)
+# z = tf.reshape(z, (1, -1, 256, 256, 256))
+# draw_heatmap(tf.reduce_sum(z[0][0], 0))
+# draw_heatmap(tf.reduce_sum(z[0][1], 0))
+# draw_heatmap(tf.reduce_sum(z[0][2], 0))
+# draw_heatmap(tf.reduce_sum(z[0][3], 0))
+# w = tf.reshape(tf.argsort(tf.zeros((1 * 64 * 64 * 64))), (1, 64, 64, 64)) / (
+#     1 * 64 * 64 * 64
+# )
+
+# draw_heatmap(tf.reduce_sum(w[0], 0))
+# v = downscaleTensor(w, 64)
+# draw_heatmap(tf.reduce_sum(v[0], 0))
+# v = downscaleTensor(w, 16)
+# draw_heatmap(tf.reduce_sum(v[0], 0))
+
+# w = tf.reshape(tf.argsort(tf.zeros((1 * 4 * 4 * 4))), (1, 4, 4, 4)) / (1 * 4 * 4 * 4)
+# draw_heatmap(tf.reduce_sum(w[0], 0))
+# v = upscaleTensor(w, 16)
+# draw_heatmap(tf.reduce_sum(v[0], 0))
+# v = upscaleTensor(v, 64)
+# draw_heatmap(tf.reduce_sum(v[0], 0))
