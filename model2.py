@@ -319,36 +319,17 @@ class Splitter(tf.keras.Model):
         return (inputShape[0:1] + (inputShape[1] // 2,) + inputShape[2:],) * 2
 
 
-def useConverterCell(dModel, h, pDropout, log4Size):
-    # input: split(inputs,2)[0],state
-    # output: concat(output,state),state
-    pass
-
-
-class ConverterCell(tf.keras.Model):
-    def __init__(self, dModel, h, pDropout, log4Size, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.cell = useConverterCell(dModel, h, pDropout, log4Size)
-        self.state_size = 2 * 4**log4Size * dModel
-
-    def call(self, inputs):
-        return self.cell(inputs)
-
-    def compute_output_shape(self, inputShape):
-        return inputShape
-
-
-def useConverter(dModel, h, pDropout, layers, log4Size):
-    # input: split(inputs,2)[0],state
+def useConverter(dModel, h, pDropout, layers):
+    # input: split(input,2)[0],state
     # output: concat(output,state),state
     pass
 
 
 class Converter(tf.keras.Model):
-    def __init__(self, dModel, h, pDropout, layers, log4Size, *args, **kwargs):
+    def __init__(self, dModel, h, pDropout, layers, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.converter = useConverter(dModel, h, pDropout, layers, log4Size)
-        self.state_size = 2 * 4**log4Size * dModel * layers
+        self.converter = useConverter(dModel, h, pDropout, layers)
+        self.state_size = 2 * dModel * layers
 
     def call(self, inputs):
         return self.converter(inputs)
@@ -381,11 +362,11 @@ def useRecursiveTransformer(
     permuteLayer = tf.keras.layers.Permute((2, 1, 3, 4))
     averagerLayer = Averager()
     encoderLayer = tf.keras.layers.TimeDistributed(
-        tf.keras.layers.RNN(Converter(dModel, h, pDropout, layers, log4Size))
+        tf.keras.layers.RNN(Converter(dModel, h, pDropout, layers))
     )
     # permute->converter->permute->averager
     decoderLayer = tf.keras.layers.TimeDistributed(
-        tf.keras.layers.RNN(Converter(dModel, h, pDropout, layers, log4Size))
+        tf.keras.layers.RNN(Converter(dModel, h, pDropout, layers))
     )
 
 
