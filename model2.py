@@ -219,12 +219,17 @@ class InvSoftmaxTiler(tf.keras.Model):
         return [input_shape[0], input_shape[1], input_shape[2], input_shape[2]]
 
 
-def toTimebasedTensor(r, size, base=4):
-    # 考える
+def toTimebasedTensor(r, size, base):
+    r = tf.reshape(r, (-1, base, size // base, size, size))
+    r = tf.transpose(r, (0, 2, 1, 3, 4))
+    r = tf.reshape(r, (-1, size // base, base**2, size // base, size))
+    r = tf.transpose(r, (0, 1, 3, 2, 4))
+    r = tf.reshape(r, (-1, size // base, size // base, base**3, size // base))
+    r = tf.transpose(r, (0, 3, 1, 2, 4))
     return r
 
 
-def fromTimebasedTensor(r, size, base=4):
+def fromTimebasedTensor(r, size, base):
     # 考える
     return r
 
@@ -232,12 +237,12 @@ def fromTimebasedTensor(r, size, base=4):
 def upscaleTensor(r, size):
     r = tf.reshape(r, (-1, (size // 4) ** 3, 1, 1, 1))
     r = tf.tile(r, (1, 1, 4, 4, 4))
-    r = fromTimebasedTensor(r, size)
+    r = fromTimebasedTensor(r, size, size // 4)
     return r
 
 
 def downscaleTensor(r, size):
-    r = toTimebasedTensor(r, size)
+    r = toTimebasedTensor(r, size, size // 4)
     r = tf.reduce_sum(r, (2, 3, 4)) / 64
     r = tf.reshape(r, (-1, size // 4, size // 4, size // 4))
     r = tf.transpose(r, (0, 3, 2, 1))
