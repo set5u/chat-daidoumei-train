@@ -373,9 +373,10 @@ def useRecursiveTransformer(
     invSoftmaxTiler = tf.keras.layers.TimeDistributed(InvSoftmaxTiler())(embedding)
     invSoftmax = tf.keras.layers.TimeDistributed(InvSoftmax())(invSoftmaxTiler)
     averagedTiler = tf.keras.layers.TimeDistributed(AveragedTiler(log4Size))(invSoftmax)
-    converter, _ = tf.keras.layers.RNN(
-        Converter(dModel, h, pDropout, layers, log4Size), return_state=True
-    )(averagedTiler)
+    converter = tf.keras.layers.TimeDistributed(
+        Converter(dModel, h, pDropout, layers, log4Size)
+    )
+    averager = Averager()
 
 
 models = useRecursiveTransformer(32, 4, 0.1, 2300, 2300, 16, numRecur, log4Size)
