@@ -230,7 +230,12 @@ def toTimebasedTensor(r, size, base):
 
 
 def fromTimebasedTensor(r, size, base):
-    # 考える
+    r = tf.transpose(r, (0, 2, 3, 1, 4))
+    r = tf.reshape(r, (-1, size // base, size // base, base**2, size))
+    r = tf.transpose(r, (0, 1, 3, 2, 4))
+    r = tf.reshape(r, (-1, size // base, base, size, size))
+    r = tf.transpose(r, (0, 2, 1, 3, 4))
+    r = tf.reshape(r, (-1, size, size, size))
     return r
 
 
@@ -245,7 +250,6 @@ def downscaleTensor(r, size):
     r = toTimebasedTensor(r, size, size // 4)
     r = tf.reduce_sum(r, (2, 3, 4)) / 64
     r = tf.reshape(r, (-1, size // 4, size // 4, size // 4))
-    r = tf.transpose(r, (0, 3, 2, 1))
     return r
 
 
@@ -259,16 +263,18 @@ class Averager(tf.keras.Model):
         for i in range(level):
             r = input[i]
             size = 4**level
-            base = 4 ** (i + 1)
-            r = fromTimebasedTensor(r, size, base)
+            base = 4 ** (level - i)
+            r = tf.reshape(r, (-1, (size // 4) ** 3, 4, 4, 4))
+            r = fromTimebasedTensor(r, size, size // 4)
+            r = tf.reshape(r, (-1, (size // base) ** 3, base, base, base))
+            r = fromTimebasedTensor(r, size, size // base)
             for k in range(i):
                 size = 4 ** (level - k)
                 r = downscaleTensor(r, size)
             for k in range(i):
                 r = tf.tile(r, (1, 4, 4, 4))
-            r = toTimebasedTensor(r, 4**level)
+            r = toTimebasedTensor(r, 4**level, 4 ** (level - 1))
             r = tf.reshape(r, (-1, (4 ** (level - 1)) ** 3, 4**3))
-            print(r.shape)
             ret.append(r)
         return tf.transpose(ret, (1, 2, 0, 3))
 
@@ -296,7 +302,7 @@ class AveragedTiler(tf.keras.Model):
             r = ret[i]
             for j in range(i):
                 r = tf.tile(r, (1, 4, 4, 4))
-            r = toTimebasedTensor(r, 4 ** (self.level + 1))
+            r = toTimebasedTensor(r, 4 ** (self.level + 1), 4**self.level)
             r = tf.reshape(r, (-1, (4**self.level) ** 3, 4**3))
             ret[i] = r
         return tf.transpose(ret, (1, 2, 0, 3))
@@ -378,32 +384,50 @@ models = useRecursiveTransformer(32, 4, 0.1, 2300, 2300, 16, numRecur, log4Size)
 print(models)
 
 
-def draw_heatmap(data):
-    fig, ax = plt.subplots()
-    ax.pcolor(data, cmap=plt.cm.jet)
-    ax.set_xticks(np.arange(data.shape[0]) + 0.5, minor=False)
-    ax.set_yticks(np.arange(data.shape[1]) + 0.5, minor=False)
+def draw_heatmap(*data, rows=1, cols=1):
+    fig = plt.figure()
+    for i, d in enumerate(data):
+        ax = plt.subplot(rows, cols, i + 1)
+        c = ax.pcolor(d, cmap=plt.cm.jet)
+        fig.colorbar(c, ax=ax)
     plt.show()
 
 
-s = 256
-tiler = AveragedTiler(3)
-x = tf.reshape(tf.argsort(tf.zeros((1 * s * s * s))), (1, s, s, s)) / (1 * s * s * s)
-draw_heatmap(tf.reduce_sum(x[0], 0))
-y = tiler(x)
-ys = tf.reshape(y, (1, -1, 256, 256, 256))
-draw_heatmap(tf.reduce_sum(ys[0][0], 0))
-draw_heatmap(tf.reduce_sum(ys[0][1], 0))
-draw_heatmap(tf.reduce_sum(ys[0][2], 0))
-draw_heatmap(tf.reduce_sum(ys[0][3], 0))
-averager = Averager()
-z = averager(y)
-print(z.shape)
-z = tf.reshape(z, (1, -1, 256, 256, 256))
-draw_heatmap(tf.reduce_sum(z[0][0], 0))
-draw_heatmap(tf.reduce_sum(z[0][1], 0))
-draw_heatmap(tf.reduce_sum(z[0][2], 0))
-draw_heatmap(tf.reduce_sum(z[0][3], 0))
+# s = 64
+# tiler = AveragedTiler(2)
+# x = tf.reshape(tf.argsort(tf.zeros((1 * s * s * s))), (1, s, s, s)) / (1 * s * s * s)
+# draw_heatmap(tf.reduce_sum(x[0], 0))
+# y = tiler(x)
+# averager = Averager()
+# z = averager(y)
+# draw_heatmap(
+#     tf.reduce_sum(
+#         fromTimebasedTensor(tf.reshape(y[:, :, 0], (1, -1, 4, 4, 4)), s, s // 4)[0], 0
+#     ),
+#     tf.reduce_sum(
+#         fromTimebasedTensor(tf.reshape(y[:, :, 1], (1, -1, 4, 4, 4)), s, s // 4)[0], 0
+#     ),
+#     tf.reduce_sum(
+#         fromTimebasedTensor(tf.reshape(y[:, :, 2], (1, -1, 4, 4, 4)), s, s // 4)[0], 0
+#     ),
+#     # tf.reduce_sum(
+#     #     fromTimebasedTensor(tf.reshape(y[:, :, 3], (1, -1, 4, 4, 4)), s, s // 4)[0], 0
+#     # ),
+#     tf.reduce_sum(
+#         fromTimebasedTensor(tf.reshape(z[:, :, 0], (1, -1, 4, 4, 4)), s, s // 4)[0], 0
+#     ),
+#     tf.reduce_sum(
+#         fromTimebasedTensor(tf.reshape(z[:, :, 1], (1, -1, 4, 4, 4)), s, s // 4)[0], 0
+#     ),
+#     tf.reduce_sum(
+#         fromTimebasedTensor(tf.reshape(z[:, :, 2], (1, -1, 4, 4, 4)), s, s // 4)[0], 0
+#     ),
+#     # tf.reduce_sum(
+#     #     fromTimebasedTensor(tf.reshape(z[:, :, 3], (1, -1, 4, 4, 4)), s, s // 4)[0], 0
+#     # ),
+#     rows=2,
+#     cols=3,
+# )
 
 # w = tf.reshape(tf.argsort(tf.zeros((1 * 64 * 64 * 64))), (1, 64, 64, 64)) / (
 #     1 * 64 * 64 * 64
