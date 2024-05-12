@@ -270,9 +270,11 @@ class Averager(tf.keras.Model):
                 r = downscaleTensor(r, size)
             for k in range(i):
                 r = tf.tile(r, (1, 4, 4, 4))
+            r = toTimebasedTensor(r, 4 ** (level))
+            r = tf.reshape(r, (-1, (4 ** (level - 1)) ** 3, 4**3))
             ret.append(r)
         return tf.reshape(
-            tf.transpose(ret, (1, 0, 2, 3, 4)),
+            tf.transpose(ret, (1, 0, 2, 3)),
             (input.shape[1], -1, input.shape[2] ** 3),
         )
 
@@ -296,18 +298,20 @@ class AveragedTiler(tf.keras.Model):
             r = downscaleTensor(r, size)
             ret.append(r)
             cLevel -= 1
-        for i in range(self.level):
-            r = ret[i + 1]
-            for j in range(i + 1):
+        for i in range(self.level + 1):
+            r = ret[i]
+            for j in range(i):
                 r = tf.tile(r, (1, 4, 4, 4))
-            ret[i + 1] = r
+            r = toTimebasedTensor(r, 4 ** (self.level + 1))
+            r = tf.reshape(r, (-1, (4**self.level) ** 3, 4**3))
+            ret[i] = r
         return tf.reshape(
-            tf.transpose(ret, (1, 0, 2, 3, 4)),
-            (input.shape[0], -1, (4**self.level) ** 3),
+            tf.transpose(ret, (1, 0, 2, 3)),
+            (input.shape[0], -1, (4**self.level) ** 3, 4**3),
         )
 
     def compute_output_shape(self, input_shape):
-        return input_shape[0:1] + (None,) + ((4**self.level) ** 3,)
+        return input_shape[0:1] + (None,) + ((4**self.level) ** 3, 4**3)
 
 
 class Splitter(tf.keras.Model):
@@ -373,10 +377,7 @@ def useRecursiveTransformer(
     invSoftmaxTiler = tf.keras.layers.TimeDistributed(InvSoftmaxTiler())(embedding)
     invSoftmax = tf.keras.layers.TimeDistributed(InvSoftmax())(invSoftmaxTiler)
     averagedTiler = tf.keras.layers.TimeDistributed(AveragedTiler(log4Size))(invSoftmax)
-    converter = tf.keras.layers.TimeDistributed(
-        Converter(dModel, h, pDropout, layers, log4Size)
-    )
-    averager = Averager()
+    converter = Converter(dModel, h, pDropout, layers, log4Size)
 
 
 models = useRecursiveTransformer(32, 4, 0.1, 2300, 2300, 16, numRecur, log4Size)
