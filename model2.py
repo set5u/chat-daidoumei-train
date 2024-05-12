@@ -319,6 +319,23 @@ class Splitter(tf.keras.Model):
         return (inputShape[0:1] + (inputShape[1] // 2,) + inputShape[2:],) * 2
 
 
+def useConverterCell(dModel, h, pDropout, layers):
+    pass
+
+
+class ConverterCell(tf.keras.Model):
+    def __init__(self, dModel, h, pDropout, layers, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cell = useConverterCell(dModel, h, pDropout, layers)
+        self.state_size = 2 * dModel * layers * 2
+
+    def call(self, inputs):
+        return self.cell(inputs)
+
+    def compute_output_shape(self, inputShape):
+        return inputShape
+
+
 def useConverter(dModel, h, pDropout, layers):
     # input: split(input,2)[0],state
     # output: concat(output,state),state
