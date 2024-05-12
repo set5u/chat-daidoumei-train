@@ -320,8 +320,9 @@ class Splitter(tf.keras.Model):
 
 
 def useConverterCell(dModel, h, pDropout, log4Size):
-    input = tf.keras.layers.Input(shape=(timeSteps, 4**log4Size**3, 4**3 * dModel))
-    stateInput = tf.keras.layers.Input(shape=(2 * 4**log4Size * dModel))
+    # input: split(inputs,2)[0],state
+    # output: concat(output,state),state
+    pass
 
 
 class ConverterCell(tf.keras.Model):
@@ -338,6 +339,8 @@ class ConverterCell(tf.keras.Model):
 
 
 def useConverter(dModel, h, pDropout, layers, log4Size):
+    # input: split(inputs,2)[0],state
+    # output: concat(output,state),state
     pass
 
 
@@ -365,6 +368,7 @@ def useRecursiveTransformer(
     log4Size,
 ):
     input = tf.keras.Input(shape=(timeSteps, 4 ** (log4Size + 1)))
+    stateInput = tf.keras.Input(shape=(numRecur, 2 * 4**log4Size * dModel * layers))
     mask = tf.keras.layers.Minimum()([input, tf.constant([1.0])])
     embedding = tf.keras.layers.TimeDistributed(
         tf.keras.layers.Embedding(
@@ -375,10 +379,14 @@ def useRecursiveTransformer(
     invSoftmax = tf.keras.layers.TimeDistributed(InvSoftmax())(invSoftmaxTiler)
     averagedTiler = tf.keras.layers.TimeDistributed(AveragedTiler(log4Size))(invSoftmax)
     permuteLayer = tf.keras.layers.Permute((2, 1, 3, 4))
-    converterLayer = tf.keras.layers.TimeDistributed(
-        Converter(dModel, h, pDropout, layers, log4Size)
-    )
     averagerLayer = Averager()
+    encoderLayer = tf.keras.layers.TimeDistributed(
+        tf.keras.layers.RNN(Converter(dModel, h, pDropout, layers, log4Size))
+    )
+    # permute->converter->permute->averager
+    decoderLayer = tf.keras.layers.TimeDistributed(
+        tf.keras.layers.RNN(Converter(dModel, h, pDropout, layers, log4Size))
+    )
 
 
 models = useRecursiveTransformer(32, 4, 0.1, 2300, 2300, 16, numRecur, log4Size)
