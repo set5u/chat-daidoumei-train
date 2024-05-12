@@ -320,14 +320,15 @@ class Splitter(tf.keras.Model):
 
 
 def useConverterCell(dModel, h, pDropout, layers):
-    pass
+    input = tf.keras.layers.Input(shape=(4**3, dModel))
+    stateInput = tf.keras.layers.Input(shape=(2 * 2 * layers * dModel))
 
 
 class ConverterCell(tf.keras.Model):
     def __init__(self, dModel, h, pDropout, layers, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.cell = useConverterCell(dModel, h, pDropout, layers)
-        self.state_size = 2 * dModel * layers * 2
+        self.state_size = 4**log4Size * layers * dModel
 
     def call(self, inputs):
         return self.cell(inputs)
@@ -336,16 +337,22 @@ class ConverterCell(tf.keras.Model):
         return inputShape
 
 
-def useConverter(dModel, h, pDropout, layers):
-    # input: split(input,2)[0],state
-    # output: concat(output,state),state
+def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
+    # ConverterCell: reshape(T=log4Size+1,4**3,dModel) -> tile(1,1,dModel) -> cell -> dense(1) -> reshape(T,4**3)
+    input = tf.keras.layers.Input(shape=(4**log4Size, log4Size + 1, 4**3))
+    stateInput = tf.keras.layers.Input(shape=(4**log4Size * layers * dModel))
+    permuteLayer = tf.keras.layers.Permute((2, 1, 3, 4))
+    averagerLayer = Averager()
+    # permute->converter->permute->averager
     pass
 
 
 class Converter(tf.keras.Model):
-    def __init__(self, dModel, h, pDropout, layers, *args, **kwargs):
+    def __init__(
+        self, dModel, h, pDropout, layers, log4Size, numRecur, *args, **kwargs
+    ):
         super().__init__(*args, **kwargs)
-        self.converter = useConverter(dModel, h, pDropout, layers)
+        self.converter = useConverter(dModel, h, pDropout, layers, log4Size, numRecur)
         self.state_size = 2 * dModel * layers
 
     def call(self, inputs):
@@ -376,14 +383,8 @@ def useRecursiveTransformer(
     invSoftmaxTiler = tf.keras.layers.TimeDistributed(InvSoftmaxTiler())(embedding)
     invSoftmax = tf.keras.layers.TimeDistributed(InvSoftmax())(invSoftmaxTiler)
     averagedTiler = tf.keras.layers.TimeDistributed(AveragedTiler(log4Size))(invSoftmax)
-    permuteLayer = tf.keras.layers.Permute((2, 1, 3, 4))
-    averagerLayer = Averager()
-    encoderLayer = tf.keras.layers.TimeDistributed(
-        tf.keras.layers.RNN(Converter(dModel, h, pDropout, layers))
-    )
-    # permute->converter->permute->averager
-    decoderLayer = tf.keras.layers.TimeDistributed(
-        tf.keras.layers.RNN(Converter(dModel, h, pDropout, layers))
+    converterLayer = tf.keras.layers.RNN(
+        Converter(dModel, h, pDropout, layers, log4Size, numRecur)
     )
 
 
