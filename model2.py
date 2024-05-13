@@ -322,7 +322,7 @@ class Splitter(tf.keras.Model):
     def compute_output_shape(self, input):
         ret = ()
         for c in self.split:
-            ret += (input.shape[0:1] + (c,) + input.shape[2:],)
+            ret += ((input.shape[0:1] + (c,) + input.shape[2:],),)
         return ret
 
 
@@ -330,7 +330,9 @@ def useConverterCell(dModel, h, pDropout, layers):
     input = tf.keras.layers.Input(shape=(4**3 + layers * 2, dModel))
     stateInput = tf.keras.layers.Input(shape=(layers * 2 * dModel))
     splittedInput, splittedState = Splitter([4**3, layers * 2])(input)
-    reshapedState = tf.keras.layers.Reshape(target_shape=(-1,))(splittedState)
+    reshapedState = tf.keras.layers.Reshape(target_shape=(layers * 2 * dModel,))(
+        splittedState
+    )
     mergedState = stateInput + reshapedState
 
 
