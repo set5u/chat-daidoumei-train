@@ -312,18 +312,26 @@ class AveragedTiler(tf.keras.Model):
 
 
 class Splitter(tf.keras.Model):
-    def call(self, input):
-        return tf.split(input, 2, 1)
+    def __init__(self, split, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.split = split
 
-    def compute_output_shape(self, inputShape):
-        return (inputShape[0:1] + (inputShape[1] // 2,) + inputShape[2:],) * 2
+    def call(self, input):
+        return tf.split(input, self.split, 1)
+
+    def compute_output_shape(self, input):
+        ret = ()
+        for c in self.split:
+            ret += (input.shape[0:1] + (c,) + input.shape[2:],)
+        return ret
 
 
 def useConverterCell(dModel, h, pDropout, layers):
-    input = tf.keras.layers.Input(shape=(4**3 + 2 * layers * 2, dModel))
-    stateInput = tf.keras.layers.Input(shape=(2 * layers * 2 * dModel))
-    # state = stateInput + input.split([4**3,2*layers*2])[1]
-    # Won't provide state from both
+    input = tf.keras.layers.Input(shape=(4**3 + layers * 2, dModel))
+    stateInput = tf.keras.layers.Input(shape=(layers * 2 * dModel))
+    splittedInput, splittedState = Splitter([4**3, layers * 2])(input)
+    reshapedState = tf.keras.layers.Reshape(target_shape=(-1,))(splittedState)
+    mergedState = stateInput + reshapedState
 
 
 class ConverterCell(tf.keras.Model):
