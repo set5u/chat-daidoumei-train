@@ -320,7 +320,7 @@ class Splitter(tf.keras.Model):
 
 
 def useConverterCell(dModel, h, pDropout, layers):
-    input = tf.keras.layers.Input(shape=(4**3, dModel))
+    input = tf.keras.layers.Input(shape=(4**3 + 2 * layers * 2, dModel))
     stateInput = tf.keras.layers.Input(shape=(2 * layers * 2 * dModel))
 
 
@@ -341,10 +341,15 @@ def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
     # ConverterCell: reshape(T=log4Size+1,4**3,dModel) -> tile(1,1,dModel) -> cell -> dense(1) -> reshape(T,4**3)
     input = tf.keras.layers.Input(shape=(4**log4Size, log4Size + 1, 4**3))
     stateInput = tf.keras.layers.Input(shape=(4**log4Size * layers * 2 * dModel))
-    permuteLayer = tf.keras.layers.Permute((2, 1, 3, 4))
     averagerLayer = Averager()
-    # permute->converter->permute->averager
-    pass
+    # concat input and state
+    encoderCellLayer = tf.keras.layers.TimeDistributed(
+        tf.keras.layers.RNN(ConverterCell(dModel, h, pDropout, layers))
+    )
+    # state.unstack.reverse -> concat output and state
+    decoderCellLayer = tf.keras.layers.TimeDistributed(
+        tf.keras.layers.RNN(ConverterCell(dModel, h, pDropout, layers))
+    )
 
 
 class Converter(tf.keras.Model):
