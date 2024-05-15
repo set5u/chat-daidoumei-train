@@ -383,7 +383,7 @@ class StateUnstacker(tf.keras.Model):
         return ret
 
     def compute_output_shape(self, inputShape):
-        return inputShape[0:1] + (self.numRecur,) + (inputShape[2] // self.numRecur,)
+        return inputShape[0:1] + (self.numRecur,) + (inputShape[1] // self.numRecur,)
 
 
 def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
