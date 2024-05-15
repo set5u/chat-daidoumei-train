@@ -271,7 +271,7 @@ def useConverterCell(dModel, h, pDropout, layers):
         reshape27Layer = tf.keras.layers.Reshape(target_shape=(27, -1))
         reshape8Layer = tf.keras.layers.Reshape(target_shape=(8, -1))
         reshape1Layer = tf.keras.layers.Reshape(target_shape=(1, -1))
-        concatLayer = tf.keras.layers.Concatenate(1)
+        concatLayer0 = tf.keras.layers.Concatenate(1)
         reshape444 = reshape444Layer(lastInput)
         conv4 = tf.keras.layers.Conv3D(dModel, 4)(reshape444)
         conv3 = tf.keras.layers.Conv3D(dModel, 3)(reshape444)
@@ -281,7 +281,7 @@ def useConverterCell(dModel, h, pDropout, layers):
         rconv3 = reshape8Layer(conv3)
         rconv2 = reshape27Layer(conv2)
         rconv1 = reshape64Layer(conv1)
-        convConcatted = concatLayer([rconv4, rconv3, rconv2, rconv1])
+        convConcatted = concatLayer0([rconv4, rconv3, rconv2, rconv1])
         attn0 = tf.keras.layers.MultiHeadAttention(h, dModel // h)(
             convConcatted, convConcatted
         )
@@ -295,7 +295,8 @@ def useConverterCell(dModel, h, pDropout, layers):
             dModel, return_sequences=True, return_state=True, go_backwards=True
         )(dropout0, initial_state=mergedReshapedState[i, 1])
         stateOuts.append([foreState, backState])
-        foreback = concatLayer([fore, back])
+        concatLayer1 = tf.keras.layers.Concatenate(1)
+        foreback = concatLayer1([fore, back])
         attn1 = tf.keras.layers.MultiHeadAttention(h, dModel // h)(foreback, foreback)
         ff1 = FF(dModel, 64)(attn1)
         addNorm1 = AddNorm()([ff1, foreback])
@@ -313,7 +314,7 @@ def useConverterCell(dModel, h, pDropout, layers):
     outStateDModelReshaped = tf.keras.layers.Reshape(target_shape=(layers * 2, dModel))(
         permutedState
     )
-    out = concatLayer([lastInput, outStateDModelReshaped])
+    out = concatLayer0([lastInput, outStateDModelReshaped])
     return tf.keras.Model(inputs=[input, stateInput], outputs=[out, outStateReshaped])
 
 
