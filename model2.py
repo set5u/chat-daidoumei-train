@@ -327,8 +327,8 @@ class ConverterCell(tf.keras.Model):
         self.cell = useConverterCell(dModel, h, pDropout, layers)
         self.state_size = 4**log4Size * layers * dModel
 
-    def call(self, inputs):
-        return self.cell(inputs)
+    def call(self, *inputs):
+        return self.cell(*inputs)
 
     def compute_output_shape(self, inputShape):
         return inputShape
@@ -367,8 +367,8 @@ class Converter(tf.keras.Model):
         self.converter = useConverter(dModel, h, pDropout, layers, log4Size, numRecur)
         self.state_size = 2 * dModel * layers
 
-    def call(self, inputs):
-        return self.converter(inputs)
+    def call(self, *inputs):
+        return self.converter(*inputs)
 
     def compute_output_shape(self, inputShape):
         return inputShape
