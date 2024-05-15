@@ -262,16 +262,16 @@ def useConverterCell(dModel, h, pDropout, layers):
     mergedReshapedState = tf.keras.layers.Reshape(target_shape=(layers, 2, dModel))(
         mergedState
     )
-    reshape444Layer = tf.keras.layers.Reshape(target_shape=(4, 4, 4, -1))
-    reshape64Layer = tf.keras.layers.Reshape(target_shape=(64, -1))
-    reshape27Layer = tf.keras.layers.Reshape(target_shape=(27, -1))
-    reshape8Layer = tf.keras.layers.Reshape(target_shape=(8, -1))
-    reshape1Layer = tf.keras.layers.Reshape(target_shape=(1, -1))
-    concatLayer = tf.keras.layers.Concatenate(1)
     bypass = []
     stateOuts = []
     lastInput = splittedInput
     for i in range(layers):
+        reshape444Layer = tf.keras.layers.Reshape(target_shape=(4, 4, 4, -1))
+        reshape64Layer = tf.keras.layers.Reshape(target_shape=(64, -1))
+        reshape27Layer = tf.keras.layers.Reshape(target_shape=(27, -1))
+        reshape8Layer = tf.keras.layers.Reshape(target_shape=(8, -1))
+        reshape1Layer = tf.keras.layers.Reshape(target_shape=(1, -1))
+        concatLayer = tf.keras.layers.Concatenate(1)
         reshape444 = reshape444Layer(lastInput)
         conv4 = tf.keras.layers.Conv3D(dModel, 4)(reshape444)
         conv3 = tf.keras.layers.Conv3D(dModel, 3)(reshape444)
@@ -290,10 +290,10 @@ def useConverterCell(dModel, h, pDropout, layers):
         dropout0 = tf.keras.layers.Dropout(pDropout)(addNorm0)
         fore, foreState = tf.keras.layers.GRU(
             dModel, return_sequences=True, return_state=True, go_backwards=False
-        )(dropout0, initial_state=mergedReshapedState[i][0])
+        )(dropout0, initial_state=mergedReshapedState[i, 0])
         back, backState = tf.keras.layers.GRU(
             dModel, return_sequences=True, return_state=True, go_backwards=True
-        )(dropout0, initial_state=mergedReshapedState[i][1])
+        )(dropout0, initial_state=mergedReshapedState[i, 1])
         stateOuts.append([foreState, backState])
         foreback = concatLayer([fore, back])
         attn1 = tf.keras.layers.MultiHeadAttention(h, dModel // h)(foreback, foreback)
@@ -318,6 +318,7 @@ def useConverterCell(dModel, h, pDropout, layers):
 
 
 cell = useConverterCell(32, 4, 0.1, 16)
+cell.summary()
 tf.keras.utils.plot_model(cell, "cell.png", show_shapes=True)
 
 
