@@ -336,6 +336,56 @@ class ConverterCell(tf.keras.Model):
         return inputShape
 
 
+class StateConcatter(tf.keras.Model):
+    def __init__(self, dModel, layers, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dModel = dModel
+        self.layers = layers
+
+    def call(self, inputs):
+        input0Shape = inputs[0].shape
+        input0 = tf.tile(inputs[0][:, :, :, :, tf.newaxis], (1, 1, 1, 1, self.dModel))
+        input1 = tf.reshape(
+            inputs[1], (input0Shape[0], input0Shape[1], 1, self.layers * 2, self.dModel)
+        )
+        input1Pad = tf.zeros(
+            (
+                input0Shape[0],
+                input0Shape[1],
+                input0Shape[2] - 1,
+                self.layers * 2,
+                self.dModel,
+            )
+        )
+        input1Concatted = tf.concat((input1, input1Pad), 2)
+        return tf.concat((input0, input1Concatted), 3)
+
+    def compute_output_shape(self, inputShapes):
+        input0Shape = inputShapes[0]
+        return (
+            input0Shape[0],
+            input0Shape[1],
+            input0Shape[2],
+            4**3 + self.layers * 2,
+            self.dModel,
+        )
+
+
+class StateUnstacker(tf.keras.Model):
+    def __init__(self, numRecur, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.numRecur = numRecur
+
+    def call(self, input):
+        ret = tf.reshape(input, (input.shape[0], self.numRecur, -1))
+        ret = tf.transpose(input, (1, 0, 2))
+        ret = tf.unstack(input)
+        return ret
+
+    def compute_output_shape(self, inputShape):
+        return inputShape[0:1] + (self.numRecur,) + (inputShape[2] // self.numRecur,)
+
+
 def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
     # ConverterCell: reshape(T=log4Size+1,4**3,dModel) -> tile(1,1,dModel) -> cell -> dense(1) -> reshape(T,4**3)
     input = tf.keras.layers.Input(
@@ -345,7 +395,10 @@ def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
             4**3,
         )
     )
-    stateInput = tf.keras.layers.Input(shape=(4**log4Size * layers * 2 * dModel,))
+    stateInput = tf.keras.layers.Input(
+        shape=(numRecur * 4**log4Size * layers * 2 * dModel,)
+    )
+    unstackerLayer = StateUnstacker(numRecur)(stateInput)
     averagerLayer = Averager()
     # concat input and state
     encoderCellLayer = tf.keras.layers.TimeDistributed(
@@ -367,7 +420,7 @@ class Converter(tf.keras.Model):
     ):
         super().__init__(*args, **kwargs)
         self.converter = useConverter(dModel, h, pDropout, layers, log4Size, numRecur)
-        self.state_size = 2 * dModel * layers
+        self.state_size = numRecur * 4**log4Size * layers * 2 * dModel
 
     def call(self, *inputs):
         return self.converter(*inputs)
