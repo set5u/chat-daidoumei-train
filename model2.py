@@ -65,34 +65,35 @@ class AddNorm(tf.keras.Model):
 
     def build(self, input_shape):
         self.norm.build(
-            input_shape[0] if isinstance(input_shape[0], tuple) else input_shape
+            input_shape[0][0] if isinstance(input_shape[0][0], tuple) else input_shape
         )
 
     def call(self, *inputs):
         return self.norm(inputs[0] + inputs[1])
 
     def compute_output_shape(self, input_shape):
-        return input_shape[0] if isinstance(input_shape[0], tuple) else input_shape
+        return (
+            input_shape[0][0] if isinstance(input_shape[0][0], tuple) else input_shape
+        )
 
 
 class FF(tf.keras.Model):
-    def __init__(self, dModel, dFF, *args, **kwargs):
+    def __init__(self, dModel, maxLen, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.ff0 = tf.keras.layers.EinsumDense("afd,de->ae", (dFF,), activation="relu")
-        self.ff1 = tf.keras.layers.EinsumDense(
-            "afe,dc->ad", (dModel,), activation="linear"
+        self.ff0 = tf.keras.layers.EinsumDense(
+            "abc,de->ade",
+            (maxLen, dModel),
+            activation="relu",
         )
+        self.ff1 = tf.keras.layers.EinsumDense(
+            "abc,de->ade", (maxLen, dModel), activation="linear"
+        )
+        self.dModel = dModel
+        self.maxLen = maxLen
 
     def build(self, input_shape):
-        input_shape = (
-            input_shape[0:1] + input_shape[1:2] + input_shape[1:2] + input_shape[2:]
-        )
-        self.ff0.build(input_shape)
-        input_shape = self.ff0.compute_output_shape(input_shape)
-        input_shape = (
-            input_shape[0:1] + input_shape[1:2] + input_shape[1:2] + input_shape[2:]
-        )
-        self.ff1.build(input_shape)
+        self.ff0.build(input_shape[0])
+        self.ff1.build(input_shape[0])
 
     def call(self, *inputs):
         ret = self.ff0(inputs[0])
@@ -100,7 +101,7 @@ class FF(tf.keras.Model):
         return ret
 
     def compute_output_shape(self, input_shape):
-        return input_shape
+        return input_shape[0][0:1] + (self.maxLen, self.dModel)
 
 
 class InvSoftmax(tf.keras.Model):
@@ -238,13 +239,21 @@ class Splitter(tf.keras.Model):
     def compute_output_shape(self, input):
         ret = ()
         for c in self.split:
-            ret += ((input.shape[0:1] + (c,) + input.shape[2:],),)
+            ret += (input[0:1] + (c,) + input[2:],)
         return ret
+
+
+class StatePermuter(tf.keras.Model):
+    def call(self, input):
+        return tf.transpose(input, (1, 0, 2, 3))
+
+    def compute_output_shape(self, input_shape):
+        return input_shape[0][0][0:1] + (len(input_shape) * 2,) + input_shape[0][0][1:]
 
 
 def useConverterCell(dModel, h, pDropout, layers):
     input = tf.keras.layers.Input(shape=(4**3 + layers * 2, dModel))
-    stateInput = tf.keras.layers.Input(shape=(layers * 2 * dModel))
+    stateInput = tf.keras.layers.Input(shape=(layers * 2 * dModel,))
     splittedInput, splittedState = Splitter([4**3, layers * 2])(input)
     reshapedState = tf.keras.layers.Reshape(target_shape=(layers * 2 * dModel,))(
         splittedState
@@ -273,8 +282,10 @@ def useConverterCell(dModel, h, pDropout, layers):
         rconv2 = reshape27Layer(conv2)
         rconv1 = reshape64Layer(conv1)
         convConcatted = concatLayer([rconv4, rconv3, rconv2, rconv1])
-        attn = tf.keras.layers.MultiHeadAttention(h, dModel // h)(convConcatted)
-        ff0 = FF(dModel, dModel)(attn)
+        attn0 = tf.keras.layers.MultiHeadAttention(h, dModel // h)(
+            convConcatted, convConcatted
+        )
+        ff0 = FF(dModel, 64)(attn0)
         addNorm0 = AddNorm()([ff0, reshape444])
         dropout0 = tf.keras.layers.Dropout(pDropout)(addNorm0)
         fore, foreState = tf.keras.layers.GRU(
@@ -285,23 +296,29 @@ def useConverterCell(dModel, h, pDropout, layers):
         )(dropout0, initial_state=mergedReshapedState[i][1])
         stateOuts.append([foreState, backState])
         foreback = concatLayer([fore, back])
-        ff1 = FF(dModel, dModel)(foreback)
-        addNorm1 = AddNorm()[ff1, foreback]
+        attn1 = tf.keras.layers.MultiHeadAttention(h, dModel // h)(foreback, foreback)
+        ff1 = FF(dModel, 64)(attn1)
+        addNorm1 = AddNorm()([ff1, foreback])
         dropout1 = tf.keras.layers.Dropout(pDropout)(addNorm1)
         bypass.append(dropout1)
         lastInput = dropout1
         j = 1
         while (i + 1) % j == 0:
-            lastInput = AddNorm()(bypass[i - j + 1], lastInput)
+            lastInput = AddNorm()([bypass[i - j + 1], lastInput])
             j *= 2
+    permutedState = StatePermuter()(stateOuts)
     outStateReshaped = tf.keras.layers.Reshape(target_shape=(layers * 2 * dModel,))(
-        stateOuts
+        permutedState
     )
     outStateDModelReshaped = tf.keras.layers.Reshape(target_shape=(layers * 2, dModel))(
-        stateOuts
+        permutedState
     )
     out = concatLayer([lastInput, outStateDModelReshaped])
     return tf.keras.Model(inputs=[input, stateInput], outputs=[out, outStateReshaped])
+
+
+cell = useConverterCell(32, 4, 0.1, 16)
+tf.keras.utils.plot_model(cell, "cell.png", show_shapes=True)
 
 
 class ConverterCell(tf.keras.Model):
@@ -319,8 +336,14 @@ class ConverterCell(tf.keras.Model):
 
 def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
     # ConverterCell: reshape(T=log4Size+1,4**3,dModel) -> tile(1,1,dModel) -> cell -> dense(1) -> reshape(T,4**3)
-    input = tf.keras.layers.Input(shape=(4**log4Size, log4Size + 1, 4**3))
-    stateInput = tf.keras.layers.Input(shape=(4**log4Size * layers * 2 * dModel))
+    input = tf.keras.layers.Input(
+        shape=(
+            4**log4Size,
+            log4Size + 1,
+            4**3,
+        )
+    )
+    stateInput = tf.keras.layers.Input(shape=(4**log4Size * layers * 2 * dModel,))
     averagerLayer = Averager()
     # concat input and state
     encoderCellLayer = tf.keras.layers.TimeDistributed(
