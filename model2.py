@@ -76,22 +76,12 @@ class AddNorm(tf.keras.Model):
 
 
 class FF(tf.keras.Model):
-    def __init__(self, dModel, dFF, maxLen, use_causal_mask=False, *args, **kwargs):
+    def __init__(self, dModel, dFF, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.mask = (
-            tf.linalg.LinearOperatorLowerTriangular(
-                tf.ones((maxLen, maxLen))
-            ).to_dense()
-            if use_causal_mask
-            else tf.ones((maxLen, maxLen))
-        )
-        self.ff0 = tf.keras.layers.EinsumDense(
-            "acfd,de->ace", (maxLen, dFF), activation="relu"
-        )
+        self.ff0 = tf.keras.layers.EinsumDense("afd,de->ae", (dFF,), activation="relu")
         self.ff1 = tf.keras.layers.EinsumDense(
-            "acfe,dc->acd", (maxLen, dModel), activation="linear"
+            "afe,dc->ad", (dModel,), activation="linear"
         )
-        self.maxLen = maxLen
 
     def build(self, input_shape):
         input_shape = (
@@ -105,86 +95,12 @@ class FF(tf.keras.Model):
         self.ff1.build(input_shape)
 
     def call(self, *inputs):
-        mask = self.mask[tf.newaxis, :, :, tf.newaxis]
-        input = tf.tile(inputs[0][:, tf.newaxis], (1, self.maxLen, 1, 1))
-        ret = input * mask
-        ret = self.ff0(ret)
-        ret = tf.tile(ret[:, tf.newaxis], (1, self.maxLen, 1, 1))
-        ret = ret * mask
+        ret = self.ff0(inputs[0])
         ret = self.ff1(ret)
         return ret
 
     def compute_output_shape(self, input_shape):
         return input_shape
-
-
-class MiddleLayer(tf.keras.Model):
-    def __init__(self, h, keyDim, maxLen, use_causal_mask=False, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        dModel = h * keyDim
-        self.dModel = dModel
-        self.dModelLen = dModel * maxLen
-        self.maxLen = maxLen
-        self.use_causal_mask = use_causal_mask
-        self.masks = (
-            tf.linalg.LinearOperatorLowerTriangular(
-                tf.ones((maxLen, maxLen))
-            ).to_dense()
-            if use_causal_mask
-            else tf.ones((maxLen, maxLen))
-        )
-        self.reshape0 = tf.keras.layers.Reshape(target_shape=(-1, maxLen * dModel))
-        self.rnn = tf.keras.layers.GRU(
-            dModel * maxLen,
-            return_sequences=True,
-            return_state=True,
-        )
-        self.reshape1 = tf.keras.layers.Reshape(target_shape=(-1, maxLen, dModel))
-        self.concat = tf.keras.layers.Concatenate(2)
-
-    def build(self, input_shapes):
-        input_shape = input_shapes[0]
-        computed = input_shape[0:2] + (self.dModelLen,)
-        self.reshape0.build(input_shape)
-        self.rnn.build(computed)
-        self.reshape1.build(computed)
-        self.concat.build(
-            (
-                input_shape[0:2] + (None,) + input_shape[3:],
-                input_shape[0:2] + (1,) + input_shape[3:],
-            )
-        )
-
-    def call(self, *inputs):
-        input = inputs[0]
-        initialState = inputs[1] if len(inputs) == 2 else None
-        if self.use_causal_mask:
-            ret = tf.constant(
-                0.0,
-                "float32",
-                (batchSize if input.shape[0] is None else input.shape[0],)
-                + input.shape[1:2]
-                + (0,)
-                + input.shape[3:],
-            )
-            for i in range(self.maxLen):
-                c, state = self.rnn(
-                    self.reshape0(
-                        input * self.masks[i][tf.newaxis, tf.newaxis, :, tf.newaxis]
-                    ),
-                    initial_state=initialState,
-                )
-                ret = self.concat((ret, self.reshape1(c)[:, :, i : i + 1, :]))
-        else:
-            ret, state = self.rnn(
-                self.reshape0(input),
-                initial_state=initialState,
-            )
-            ret = self.reshape1(ret)
-        return ret, state
-
-    def compute_output_shape(self, input_shapes):
-        return input_shapes[0], input_shapes[0][:2] + (self.dModelLen,)
 
 
 class InvSoftmax(tf.keras.Model):
@@ -334,6 +250,58 @@ def useConverterCell(dModel, h, pDropout, layers):
         splittedState
     )
     mergedState = stateInput + reshapedState
+    mergedReshapedState = tf.keras.layers.Reshape(target_shape=(layers, 2, dModel))(
+        mergedState
+    )
+    reshape444Layer = tf.keras.layers.Reshape(target_shape=(4, 4, 4, -1))
+    reshape64Layer = tf.keras.layers.Reshape(target_shape=(64, -1))
+    reshape27Layer = tf.keras.layers.Reshape(target_shape=(27, -1))
+    reshape8Layer = tf.keras.layers.Reshape(target_shape=(8, -1))
+    reshape1Layer = tf.keras.layers.Reshape(target_shape=(1, -1))
+    concatLayer = tf.keras.layers.Concatenate(1)
+    bypass = []
+    stateOuts = []
+    lastInput = splittedInput
+    for i in range(layers):
+        reshape444 = reshape444Layer(lastInput)
+        conv4 = tf.keras.layers.Conv3D(dModel, 4)(reshape444)
+        conv3 = tf.keras.layers.Conv3D(dModel, 3)(reshape444)
+        conv2 = tf.keras.layers.Conv3D(dModel, 2)(reshape444)
+        conv1 = tf.keras.layers.Conv3D(dModel, 1)(reshape444)
+        rconv4 = reshape1Layer(conv4)
+        rconv3 = reshape8Layer(conv3)
+        rconv2 = reshape27Layer(conv2)
+        rconv1 = reshape64Layer(conv1)
+        convConcatted = concatLayer([rconv4, rconv3, rconv2, rconv1])
+        attn = tf.keras.layers.MultiHeadAttention(h, dModel // h)(convConcatted)
+        ff0 = FF(dModel, dModel)(attn)
+        addNorm0 = AddNorm()([ff0, reshape444])
+        dropout0 = tf.keras.layers.Dropout(pDropout)(addNorm0)
+        fore, foreState = tf.keras.layers.GRU(
+            dModel, return_sequences=True, return_state=True, go_backwards=False
+        )(dropout0, initial_state=mergedReshapedState[i][0])
+        back, backState = tf.keras.layers.GRU(
+            dModel, return_sequences=True, return_state=True, go_backwards=True
+        )(dropout0, initial_state=mergedReshapedState[i][1])
+        stateOuts.append([foreState, backState])
+        foreback = concatLayer([fore, back])
+        ff1 = FF(dModel, dModel)(foreback)
+        addNorm1 = AddNorm()[ff1, foreback]
+        dropout1 = tf.keras.layers.Dropout(pDropout)(addNorm1)
+        bypass.append(dropout1)
+        lastInput = dropout1
+        j = 1
+        while (i + 1) % j == 0:
+            lastInput = AddNorm()(bypass[i - j + 1], lastInput)
+            j *= 2
+    outStateReshaped = tf.keras.layers.Reshape(target_shape=(layers * 2 * dModel,))(
+        stateOuts
+    )
+    outStateDModelReshaped = tf.keras.layers.Reshape(target_shape=(layers * 2, dModel))(
+        stateOuts
+    )
+    out = concatLayer([lastInput, outStateDModelReshaped])
+    return tf.keras.Model(inputs=[input, stateInput], outputs=[out, outStateReshaped])
 
 
 class ConverterCell(tf.keras.Model):
