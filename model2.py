@@ -371,6 +371,23 @@ class StateConcatter(tf.keras.Model):
         )
 
 
+class StateSplitter(tf.keras.Model):
+    def __init__(self, dModel, layers, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dModel = dModel
+        self.layers = layers
+
+    def call(self, input):
+        return input
+
+    def compute_output_shape(self, inputShapes):
+        input0Shape = inputShapes[0]
+        return (
+            (input0Shape[0], input0Shape[1], input0Shape[2], 4**3, self.dModel),
+            (input0Shape[0], input0Shape[1], self.layers * 2, self.dModel),
+        )
+
+
 class StateUnstacker(tf.keras.Model):
     def __init__(self, numRecur, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -387,7 +404,7 @@ class StateUnstacker(tf.keras.Model):
 
 
 def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
-    # ConverterCell: reshape(T=log4Size+1,4**3,dModel) -> tile(1,1,dModel) -> cell -> dense(1) -> reshape(T,4**3)
+    # ConverterCell: reshape(T=log4Size+1,4**3,1) -> tile(1,1,dModel) -> cell -> dense(1) -> reshape(T,4**3)
     input = tf.keras.layers.Input(
         shape=(
             4**log4Size,
@@ -398,7 +415,8 @@ def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
     stateInput = tf.keras.layers.Input(
         shape=(numRecur * 4**log4Size * layers * 2 * dModel,)
     )
-    unstackerLayer = StateUnstacker(numRecur)(stateInput)
+    concatterLayer = StateConcatter(dModel, layers)
+    unstackerLayer = StateUnstacker(numRecur)
     averagerLayer = Averager()
     # concat input and state
     encoderCellLayer = tf.keras.layers.TimeDistributed(
@@ -406,6 +424,7 @@ def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
             ConverterCell(dModel, h, pDropout, layers), return_sequences=True
         )
     )
+    encoderDenseLayer = tf.keras.layers.EinsumDense("abcde,cde->abd", (None, 4**3))
     # state.unstack.reverse -> concat output and state
     decoderCellLayer = tf.keras.layers.TimeDistributed(
         tf.keras.layers.RNN(
