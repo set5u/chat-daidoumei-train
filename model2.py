@@ -417,6 +417,8 @@ def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
         shape=(numRecur * 4**log4Size * layers * 2 * dModel,)
     )
     concatterLayer = StateConcatter(dModel, layers)
+    splitterLayer = StateSplitter(dModel, layers)
+    permuterLayer = StatePermuter()
     unstackerLayer = StateUnstacker(numRecur)
     averagerLayer = Averager()
     # concat input and state
