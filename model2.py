@@ -378,6 +378,7 @@ class StateSplitter(tf.keras.Model):
         self.layers = layers
 
     def call(self, input):
+        # TODO: implement
         return input
 
     def compute_output_shape(self, inputShapes):
