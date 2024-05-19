@@ -7,7 +7,7 @@ import random
 
 batchSize = 16
 numRecur = 8
-log4Size = 3  # 256,64,16,4 = 3, 1小さい値
+log4Size = 2  # 64,16,4 = 2, 1小さい値
 timeSteps = None
 
 
@@ -472,7 +472,7 @@ def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
     )
 
 
-converter = useConverter(32, 4, 0.1, 16, 3, 8)
+converter = useConverter(32, 4, 0.1, 16, 2, 8)
 converter.summary()
 tf.keras.utils.plot_model(converter, "converter.png", show_shapes=True)
 
