@@ -6,8 +6,8 @@ import math
 import random
 
 batchSize = 1
-numRecur = 2
-log4Size = 1  # 64,16,4 = 2, 1小さい値
+numRecur = 8
+log4Size = 1  # 16,4 = 2, 1小さい値
 timeSteps = 2
 
 
@@ -598,7 +598,12 @@ def useRecursiveTransformer(
             activation="softmax",
         )
     )(extract)
-    return tf.keras.Model(inputs=[input, stateInput], outputs=[outputDense, state])
+    return {
+        "predicter": tf.keras.Model(
+            inputs=[input, stateInput], outputs=[outputDense, state]
+        ),
+        "trainer": tf.keras.Model(inputs=[input, stateInput], outputs=outputDense),
+    }
 
 
 with open("./num2char.json") as f:
@@ -609,13 +614,14 @@ with open("./tokens.json") as f:
     tokens = json.loads("".join(f.readlines()))
 flattenTokens = sum(tokens, [])
 depth = len(num2char)
-model = useRecursiveTransformer(32, 4, 0.1, depth, depth, 16, numRecur, log4Size)
-model.summary()
+stepsPerEpoch = 4
 
 
 def loader():
     while True:
-        for i in range(batchSize):
+        xs = []
+        ys = []
+        for i in range(batchSize * stepsPerEpoch):
             startIndex = math.floor(
                 random.random() * (len(flattenTokens) - 4 ** (log4Size + 1))
             )
@@ -623,10 +629,45 @@ def loader():
                 math.floor(random.random() * 4 ** (log4Size + 1))
                 + 4 ** (log4Size + 1) * timeSteps
             )
+            r = flattenTokens[startIndex : startIndex + count]
+            r = [0] * (4 ** (log4Size + 1) * (timeSteps + 1) - count) + r
+            r = np.array(r).reshape(timeSteps + 1, 4 ** (log4Size + 1))
+            xs.append(r[0:-1])
+            ys.append(r[1:])
+        yield (xs, ys)
+
+
+models = useRecursiveTransformer(32, 4, 0.1, depth, depth, 16, numRecur, log4Size)
+models["trainer"].summary()
+
+
+class Callback(tf.keras.callbacks.Callback):
+    def on_epoch_end(self, epoch, _):
+        toSave = save(models["trainer"])
+        with open(
+            "/content/drive/MyDrive/chat-daidoumei-train/weights/weight-"
+            + str(1)
+            + ".jsonl",
+            "w",
+        ) as f:
+            f.write(toSave)
 
 
 def train():
-    pass
+    state = tf.zeros((batchSize, 262144))
+    trainDatas = loader()
+    epoch = 0
+    while True:
+        print("epoch" + str(epoch))
+        data = next(trainDatas)
+        models["trainer"].fit(
+            [data[0], state],
+            data[1],
+            batch_size=batchSize,
+            steps_per_epoch=stepsPerEpoch,
+            epochs=1,
+            callbacks=[Callback()] if epoch % 200 == 1 else [],
+        )
 
 
 def predict():
