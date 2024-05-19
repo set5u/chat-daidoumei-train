@@ -5,10 +5,10 @@ import matplotlib.pyplot as plt
 import math
 import random
 
-batchSize = 16
+batchSize = 1
 numRecur = 8
 log4Size = 2  # 64,16,4 = 2, 1小さい値
-timeSteps = None
+timeSteps = 16
 
 
 def draw_heatmap(*data, rows=1, cols=1):
@@ -74,9 +74,7 @@ class AddNorm(tf.keras.Model):
 
     def build(self, input_shape):
         self.norm.build(
-            input_shape[0][0]
-            if isinstance(input_shape[0][0], tuple)
-            else input_shape[0]
+            input_shape[0] if isinstance(input_shape[0], tuple) else input_shape
         )
 
     def call(self, *inputs):
@@ -105,8 +103,8 @@ class FF(tf.keras.Model):
         self.maxLen = maxLen
 
     def build(self, input_shape):
-        self.ff0.build(input_shape[0])
-        self.ff1.build(input_shape[0])
+        self.ff0.build(input_shape)
+        self.ff1.build(input_shape)
 
     def call(self, *inputs):
         ret = self.ff0(inputs[0])
@@ -118,7 +116,6 @@ class FF(tf.keras.Model):
 
 
 class InvSoftmax(tf.keras.Model):
-    supports_masking = True
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -139,7 +136,6 @@ class InvSoftmax(tf.keras.Model):
 
 
 class InvSoftmaxTiler(tf.keras.Model):
-    supports_masking = True
 
     def call(self, input):
         return tf.tile(
@@ -186,7 +182,6 @@ def downscaleTensor(r, size):
 
 
 class Averager(tf.keras.Model):
-    supports_masking = True
 
     def call(self, input):
         level = input.shape[2]
@@ -215,7 +210,6 @@ class Averager(tf.keras.Model):
 
 
 class AveragedTiler(tf.keras.Model):
-    supports_masking = True
 
     def __init__(self, level, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -375,6 +369,9 @@ class ConverterCell(tf.keras.Model):
         self.state_size = layers * 2 * 4**3
         self.output_size = 4**3 * (layers * 2 + dModel)
 
+    def build(self, inputShape):
+        self.cell.build(inputShape)
+
     def call(self, *inputs):
         return self.cell(inputs)
 
@@ -391,24 +388,29 @@ class StateConcatter(tf.keras.Model):
     # 4**3, dModel + layers * 2
     def call(self, inputs):
         input0Shape = inputs[0].shape
+        batch_size = input0Shape[0] if batchSize is None else batchSize
         input0 = tf.tile(inputs[0][:, :, :, :, tf.newaxis], (1, 1, 1, 1, self.dModel))
         input1 = (
             inputs[1]
             if len(inputs) == 2
-            else tf.zeros(
-                (input0Shape[0] * input0Shape[1] * 4**3 * self.layersCount * 2,)
-            )
+            else tf.zeros((batch_size * input0Shape[1] * 4**3 * self.layersCount * 2,))
         )
         input1 = tf.transpose(
             tf.reshape(
                 input1,
-                (input0Shape[0], input0Shape[1], -1, self.layersCount * 2, 4**3),
+                (
+                    batch_size,
+                    input0Shape[1],
+                    -1,
+                    self.layersCount * 2,
+                    4**3,
+                ),
             )[:, :, 0:1, :, :],
             (0, 1, 2, 4, 3),
         )
         input1Pad = tf.zeros(
             (
-                input0Shape[0],
+                batch_size,
                 input0Shape[1],
                 input0Shape[2] - 1,
                 4**3,
@@ -570,9 +572,7 @@ def useRecursiveTransformer(
         shape=(numRecur * (4**log4Size) ** 3 * layers * 2 * 4**3,)
     )
     embedding = tf.keras.layers.TimeDistributed(
-        tf.keras.layers.Embedding(
-            input_dim=depthInput, output_dim=4 ** (log4Size + 1), mask_zero=True
-        )
+        tf.keras.layers.Embedding(input_dim=depthInput, output_dim=4 ** (log4Size + 1))
     )(input)
     invSoftmaxTiler = tf.keras.layers.TimeDistributed(InvSoftmaxTiler())(embedding)
     invSoftmax = tf.keras.layers.TimeDistributed(InvSoftmax())(invSoftmaxTiler)
@@ -626,9 +626,15 @@ def predict():
 
 
 def summarize():
+    print(model.summary())
     graph = buildGraph(model)
     tf.summary.trace_on(True)
-    graph((tf.zeros((1, 4, 64), dtype="int32"), tf.random.uniform((1, 67108864))))
+    graph(
+        (
+            tf.zeros((batchSize, 4, 64), dtype="int32"),
+            tf.random.uniform((batchSize, 67108864)),
+        )
+    )
     writer = tf.summary.create_file_writer("./tensorboard")
     with writer.as_default():
         tf.summary.trace_export("graph", step=0, profiler_outdir="./tensorboard")
