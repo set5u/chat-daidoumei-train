@@ -323,11 +323,6 @@ def useConverterCell(dModel, h, pDropout, layers):
     return tf.keras.Model(inputs=[input, stateInput], outputs=[out, outStateReshaped])
 
 
-# cell = useConverterCell(32, 4, 0.1, 16)
-# cell.summary()
-# tf.keras.utils.plot_model(cell, "cell.png", show_shapes=True)
-
-
 class ConverterCell(tf.keras.Model):
     def __init__(self, dModel, h, pDropout, layers, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -403,7 +398,6 @@ class StateSplitter(tf.keras.Model):
 
 
 def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
-    # ConverterCell: reshape(T=log4Size+1,4**3,1) -> tile(1,1,dModel) -> cell -> dense(1) -> reshape(T,4**3)
     input = tf.keras.layers.Input(
         shape=(
             (4**log4Size) ** 3,
@@ -443,7 +437,7 @@ def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
         while (i + 1) % j == 0:
             lastEncoderBypass = AddNorm()(bypass[i - j + 1], lastEncoderBypass)
             j *= 2
-        lastDecoderBypass = lastEncoderBypass
+        lastDecoderOutput = lastEncoderBypass
         concatter = concatterLayer(lastEncoderBypass)
         lastEncoderOutput = concatter
 
@@ -456,19 +450,31 @@ def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
     decoderDenseLayer = tf.keras.layers.EinsumDense(
         "abcde,de->abcd", ((4**log4Size) ** 3, log4Size + 1, 4**3)
     )
-    lastDecoderOutput = lastEncoderOutput
     bypass = []
+    encoderStates.reverse()
     decoderStates = []
     for i in range(numRecur):
-        decoderCell = decoderCellLayer(lastDecoderOutput)
+        concatter = concatterLayer((lastDecoderOutput, encoderStates[i]))
+        decoderCell = decoderCellLayer(concatter)
         splitter, state = splitterLayer(decoderCell)
-
+        decoderStates.append(state)
+        decoderDense = decoderDenseLayer(splitter)
+        averager = averagerLayer(decoderDense)
+        bypass.append(lastDecoderOutput)
+        lastDecoderOutput = averager
+        j = 1
+        while (i + 1) % j == 0:
+            lastDecoderOutput = AddNorm()(bypass[i - j + 1], lastDecoderOutput)
+            j *= 2
+    decoderStates.reverse()
     return tf.keras.Model(
-        inputs=(input, stateInput), outputs=[lastEncoderOutput] + encoderStates
+        inputs=(input, stateInput), outputs=[lastDecoderOutput] + decoderStates
     )
 
 
-useConverter(32, 4, 0.1, 16, 3, 8)
+converter = useConverter(32, 4, 0.1, 16, 3, 8)
+converter.summary()
+tf.keras.utils.plot_model(converter, "converter.png", show_shapes=True)
 
 
 class Converter(tf.keras.Model):
