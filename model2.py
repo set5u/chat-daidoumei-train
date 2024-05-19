@@ -64,8 +64,11 @@ class AddNorm(tf.keras.Model):
         self.norm = tf.keras.layers.LayerNormalization()
 
     def build(self, input_shape):
+        print(input_shape)
         self.norm.build(
-            input_shape[0][0] if isinstance(input_shape[0][0], tuple) else input_shape
+            input_shape[0][0]
+            if isinstance(input_shape[0][0], tuple)
+            else input_shape[0]
         )
 
     def call(self, *inputs):
@@ -73,7 +76,9 @@ class AddNorm(tf.keras.Model):
 
     def compute_output_shape(self, input_shape):
         return (
-            input_shape[0][0] if isinstance(input_shape[0][0], tuple) else input_shape
+            input_shape[0][0]
+            if isinstance(input_shape[0][0], tuple)
+            else input_shape[0]
         )
 
 
@@ -286,7 +291,7 @@ def useConverterCell(dModel, h, pDropout, layers):
             convConcatted, convConcatted
         )
         ff0 = FF(dModel, 64)(attn0)
-        addNorm0 = AddNorm()([ff0, reshape444])
+        addNorm0 = AddNorm()([ff0, lastInput])
         dropout0 = tf.keras.layers.Dropout(pDropout)(addNorm0)
         fore, foreState = tf.keras.layers.GRU(
             dModel, return_sequences=True, return_state=True, go_backwards=False
@@ -299,7 +304,7 @@ def useConverterCell(dModel, h, pDropout, layers):
         foreback = concatLayer1([fore, back])
         attn1 = tf.keras.layers.MultiHeadAttention(h, dModel // h)(foreback, foreback)
         ff1 = FF(dModel, 64)(attn1)
-        addNorm1 = AddNorm()([ff1, foreback])
+        addNorm1 = AddNorm()([ff1, dropout0])
         dropout1 = tf.keras.layers.Dropout(pDropout)(addNorm1)
         bypass.append(dropout1)
         lastInput = dropout1
@@ -318,9 +323,9 @@ def useConverterCell(dModel, h, pDropout, layers):
     return tf.keras.Model(inputs=[input, stateInput], outputs=[out, outStateReshaped])
 
 
-cell = useConverterCell(32, 4, 0.1, 16)
-cell.summary()
-tf.keras.utils.plot_model(cell, "cell.png", show_shapes=True)
+# cell = useConverterCell(32, 4, 0.1, 16)
+# cell.summary()
+# tf.keras.utils.plot_model(cell, "cell.png", show_shapes=True)
 
 
 class ConverterCell(tf.keras.Model):
@@ -340,20 +345,28 @@ class StateConcatter(tf.keras.Model):
     def __init__(self, dModel, layers, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.dModel = dModel
-        self.layers = layers
+        self.layersCount = layers
 
     def call(self, inputs):
         input0Shape = inputs[0].shape
         input0 = tf.tile(inputs[0][:, :, :, :, tf.newaxis], (1, 1, 1, 1, self.dModel))
+        input1 = (
+            inputs[1]
+            if len(inputs) == 2
+            else tf.zeros(
+                (input0Shape[0] * input0Shape[1] * self.layersCount * 2 * self.dModel,)
+            )
+        )
         input1 = tf.reshape(
-            inputs[1], (input0Shape[0], input0Shape[1], 1, self.layers * 2, self.dModel)
+            input1,
+            (input0Shape[0], input0Shape[1], 1, self.layersCount * 2, self.dModel),
         )
         input1Pad = tf.zeros(
             (
                 input0Shape[0],
                 input0Shape[1],
                 input0Shape[2] - 1,
-                self.layers * 2,
+                self.layersCount * 2,
                 self.dModel,
             )
         )
@@ -361,12 +374,12 @@ class StateConcatter(tf.keras.Model):
         return tf.concat((input0, input1Concatted), 3)
 
     def compute_output_shape(self, inputShapes):
-        input0Shape = inputShapes[0]
+        input0Shape = inputShapes[0] if len(inputShapes) == 2 else inputShapes
         return (
             input0Shape[0],
             input0Shape[1],
             input0Shape[2],
-            4**3 + self.layers * 2,
+            4**3 + self.layersCount * 2,
             self.dModel,
         )
 
@@ -375,51 +388,34 @@ class StateSplitter(tf.keras.Model):
     def __init__(self, dModel, layers, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.dModel = dModel
-        self.layers = layers
+        self.layersCount = layers
 
     def call(self, input):
-        ret, state = tf.split(input, [4**3, self.layers * 2], 3)
+        ret, state = tf.split(input, [4**3, self.layersCount * 2], 3)
         return ret, state[:, :, -1, :, :]
 
     def compute_output_shape(self, inputShapes):
-        input0Shape = inputShapes[0]
+        input0Shape = inputShapes
         return (
             (input0Shape[0], input0Shape[1], input0Shape[2], 4**3, self.dModel),
-            (input0Shape[0], input0Shape[1], self.layers * 2, self.dModel),
+            (input0Shape[0], input0Shape[1], self.layersCount * 2, self.dModel),
         )
-
-
-class StateUnstacker(tf.keras.Model):
-    def __init__(self, numRecur, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.numRecur = numRecur
-
-    def call(self, input):
-        ret = tf.reshape(input, (input.shape[0], self.numRecur, -1))
-        ret = tf.transpose(input, (1, 0, 2))
-        ret = tf.unstack(input)
-        return ret
-
-    def compute_output_shape(self, inputShape):
-        return inputShape[0:1] + (self.numRecur,) + (inputShape[1] // self.numRecur,)
 
 
 def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
     # ConverterCell: reshape(T=log4Size+1,4**3,1) -> tile(1,1,dModel) -> cell -> dense(1) -> reshape(T,4**3)
     input = tf.keras.layers.Input(
         shape=(
-            4**log4Size,
+            (4**log4Size) ** 3,
             log4Size + 1,
             4**3,
         )
     )
     stateInput = tf.keras.layers.Input(
-        shape=(numRecur * 4**log4Size * layers * 2 * dModel,)
+        shape=(numRecur * (4**log4Size) ** 3 * layers * 2 * dModel,)
     )
     concatterLayer = StateConcatter(dModel, layers)
     splitterLayer = StateSplitter(dModel, layers)
-    permuterLayer = StatePermuter()
-    unstackerLayer = StateUnstacker(numRecur)
     averagerLayer = Averager()
     # concat input and state
     encoderCellLayer = tf.keras.layers.TimeDistributed(
@@ -427,13 +423,52 @@ def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
             ConverterCell(dModel, h, pDropout, layers), return_sequences=True
         )
     )
-    encoderDenseLayer = tf.keras.layers.EinsumDense("abcde,cde->abd", (None, 4**3))
+    encoderDenseLayer = tf.keras.layers.EinsumDense(
+        "abcde,de->abcd", ((4**log4Size) ** 3, log4Size + 1, 4**3)
+    )
+    concatter = concatterLayer((input, stateInput))
+    lastEncoderOutput = concatter
+    lastEncoderBypass = input
+    encoderStates = []
+    bypass = []
+    for i in range(numRecur):
+        encoderCell = encoderCellLayer(lastEncoderOutput)
+        splitter, state = splitterLayer(encoderCell)
+        encoderStates.append(state)
+        encoderDense = encoderDenseLayer(splitter)
+        averager = averagerLayer(encoderDense)
+        bypass.append(lastEncoderBypass)
+        lastEncoderBypass = averager
+        j = 1
+        while (i + 1) % j == 0:
+            lastEncoderBypass = AddNorm()(bypass[i - j + 1], lastEncoderBypass)
+            j *= 2
+        lastDecoderBypass = lastEncoderBypass
+        concatter = concatterLayer(lastEncoderBypass)
+        lastEncoderOutput = concatter
+
     # state.unstack.reverse -> concat output and state
     decoderCellLayer = tf.keras.layers.TimeDistributed(
         tf.keras.layers.RNN(
             ConverterCell(dModel, h, pDropout, layers), return_sequences=True
         )
     )
+    decoderDenseLayer = tf.keras.layers.EinsumDense(
+        "abcde,de->abcd", ((4**log4Size) ** 3, log4Size + 1, 4**3)
+    )
+    lastDecoderOutput = lastEncoderOutput
+    bypass = []
+    decoderStates = []
+    for i in range(numRecur):
+        decoderCell = decoderCellLayer(lastDecoderOutput)
+        splitter, state = splitterLayer(decoderCell)
+
+    return tf.keras.Model(
+        inputs=(input, stateInput), outputs=[lastEncoderOutput] + encoderStates
+    )
+
+
+useConverter(32, 4, 0.1, 16, 3, 8)
 
 
 class Converter(tf.keras.Model):
@@ -477,8 +512,8 @@ def useRecursiveTransformer(
     )
 
 
-models = useRecursiveTransformer(32, 4, 0.1, 2300, 2300, 16, numRecur, log4Size)
-print(models)
+# models = useRecursiveTransformer(32, 4, 0.1, 2300, 2300, 16, numRecur, log4Size)
+# print(models)
 
 
 def draw_heatmap(*data, rows=1, cols=1):
