@@ -11,6 +11,15 @@ log4Size = 2  # 64,16,4 = 2, 1小さい値
 timeSteps = None
 
 
+def draw_heatmap(*data, rows=1, cols=1):
+    fig = plt.figure()
+    for i, d in enumerate(data):
+        ax = plt.subplot(rows, cols, i + 1)
+        c = ax.pcolor(d, cmap=plt.cm.jet)
+        fig.colorbar(c, ax=ax)
+    plt.show()
+
+
 def save(model):
     weights = model.get_weights()
     ret = []
@@ -568,15 +577,28 @@ def useRecursiveTransformer(
     return tf.keras.Model(inputs=[input, stateInput], outputs=[outputDense, state])
 
 
-model = useRecursiveTransformer(32, 4, 0.1, 2300, 2300, 16, numRecur, log4Size)
+with open("./num2char.json") as f:
+    num2char = json.loads("".join(f.readlines()))
+with open("./char2num.json") as f:
+    char2num = json.loads("".join(f.readlines()))
+with open("./tokens.json") as f:
+    tokens = json.loads("".join(f.readlines()))
+depth = len(num2char)
+model = useRecursiveTransformer(32, 4, 0.1, depth, depth, 16, numRecur, log4Size)
 model.summary()
 tf.keras.utils.plot_model(model, "model.png", show_shapes=True)
 
 
-def draw_heatmap(*data, rows=1, cols=1):
-    fig = plt.figure()
-    for i, d in enumerate(data):
-        ax = plt.subplot(rows, cols, i + 1)
-        c = ax.pcolor(d, cmap=plt.cm.jet)
-        fig.colorbar(c, ax=ax)
-    plt.show()
+def train():
+    pass
+
+
+def predict():
+    pass
+
+
+toTrain = True
+if toTrain:
+    train()
+else:
+    predict()
