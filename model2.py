@@ -6,8 +6,8 @@ import math
 import random
 
 batchSize = 1
-numRecur = 8
-log4Size = 2  # 64,16,4 = 2, 1小さい値
+numRecur = 2
+log4Size = 1  # 64,16,4 = 2, 1小さい値
 timeSteps = 2
 
 
@@ -237,15 +237,15 @@ class Extractor(tf.keras.Model):
         self.log4Size = log4Size
 
     def call(self, inputs):
-        ret = []
-        for i in range(self.log4Size + 1):
-            ret.append(fromTimebasedTensor(inputs[:, :, i, :], 4**log4Size, 4))
-        return tf.permute(ret, (1, 0, 2, 3, 4))
+        return fromTimebasedTensor(
+            tf.reshape(inputs[:, :, 0, :], (-1, (4**log4Size) ** 3, 4, 4, 4)),
+            4 ** (log4Size + 1),
+            4**log4Size,
+        )
 
     def compute_output_shape(self, inputShape):
         return (
             inputShape[0],
-            inputShape[1],
             4 ** (log4Size + 1),
             4 ** (log4Size + 1),
             4 ** (log4Size + 1),
@@ -531,8 +531,9 @@ def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
         target_shape=((4**log4Size) ** 3 * (log4Size + 1) * 4**3,)
     )(lastDecoderOutput)
     permutedStates = DecoderStatePermuter()((decoderStates,))
+    reshapedStates = tf.keras.layers.Reshape(target_shape=(-1,))(permutedStates)
     return tf.keras.Model(
-        inputs=(input, stateInput), outputs=[reshapedOutput, permutedStates]
+        inputs=(input, stateInput), outputs=[reshapedOutput, reshapedStates]
     )
 
 
@@ -589,7 +590,7 @@ def useRecursiveTransformer(
     reshape = tf.keras.layers.Reshape(
         target_shape=(timeSteps, (4**log4Size) ** 3, log4Size + 1, 4**3)
     )(converterLayer)
-    extract = Extractor(log4Size)(reshape)
+    extract = tf.keras.layers.TimeDistributed(Extractor(log4Size))(reshape)
     outputDense = tf.keras.layers.TimeDistributed(
         tf.keras.layers.EinsumDense(
             "abcd,de->abe",
@@ -608,14 +609,7 @@ with open("./tokens.json") as f:
     tokens = json.loads("".join(f.readlines()))
 depth = len(num2char)
 model = useRecursiveTransformer(32, 4, 0.1, depth, depth, 16, numRecur, log4Size)
-
-
-def buildGraph(model):
-    @tf.function
-    def call(*x):
-        return model(*x)
-
-    return call
+model.summary()
 
 
 def train():
@@ -626,26 +620,9 @@ def predict():
     pass
 
 
-def summarize():
-    model.summary(expand_nested=True)
-    graph = buildGraph(model)
-    tf.summary.trace_on(True)
-    graph(
-        (
-            tf.zeros((batchSize, 4, 64), dtype="int32"),
-            tf.random.uniform((batchSize, 67108864)),
-        )
-    )
-    writer = tf.summary.create_file_writer("./graph")
-    with writer.as_default():
-        tf.summary.trace_export("graph", step=0, profiler_outdir="./graph")
-
-
 toTrain = False
 toSummarize = True
 if toTrain:
     train()
-elif toSummarize:
-    summarize()
 else:
     predict()
