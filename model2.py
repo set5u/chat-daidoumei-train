@@ -270,12 +270,14 @@ class Splitter(tf.keras.Model):
         self.split = split
 
     def call(self, input):
-        return tf.split(input, self.split, 1)
+        a, b = tf.split(input, self.split, 2)
+        b = tf.transpose(b, (0, 2, 1))
+        return a, b
 
     def compute_output_shape(self, input):
         ret = ()
         for c in self.split:
-            ret += (input[0:1] + (c,) + input[2:],)
+            ret += (input[0:2] + (c,) + input[3:],)
         return ret
 
 
@@ -288,17 +290,17 @@ class StatePermuter(tf.keras.Model):
 
 
 def useConverterCell(dModel, h, pDropout, layers):
-    input = tf.keras.layers.Input(shape=((4**3 + layers * 2) * dModel,))
-    stateInput = tf.keras.layers.Input(shape=(layers * 2 * dModel,))
-    reshapedInput = tf.keras.layers.Reshape(target_shape=(4**3 + layers * 2, dModel))(
+    input = tf.keras.layers.Input(shape=(4**3 * (dModel + layers * 2),))
+    stateInput = tf.keras.layers.Input(shape=(layers * 2 * 4**3,))
+    reshapedInput = tf.keras.layers.Reshape(target_shape=(4**3, dModel + layers * 2))(
         input
     )
-    splittedInput, splittedState = Splitter([4**3, layers * 2])(reshapedInput)
-    reshapedState = tf.keras.layers.Reshape(target_shape=(layers * 2 * dModel,))(
+    splittedInput, splittedState = Splitter([dModel, layers * 2])(reshapedInput)
+    reshapedState = tf.keras.layers.Reshape(target_shape=(layers * 2 * 4**3,))(
         splittedState
     )
     mergedState = stateInput + reshapedState
-    mergedReshapedState = tf.keras.layers.Reshape(target_shape=(layers, 2, dModel))(
+    mergedReshapedState = tf.keras.layers.Reshape(target_shape=(layers, 2, 4**3))(
         mergedState
     )
     bypass = []
@@ -329,10 +331,10 @@ def useConverterCell(dModel, h, pDropout, layers):
         dropout0 = tf.keras.layers.Dropout(pDropout)(addNorm0)
         gruPermute = tf.keras.layers.Permute((2, 1))(dropout0)
         fore, foreState = tf.keras.layers.GRU(
-            dModel, return_sequences=True, return_state=True, go_backwards=False
+            4**3, return_sequences=True, return_state=True, go_backwards=False
         )(gruPermute, initial_state=mergedReshapedState[:, i, 0])
         back, backState = tf.keras.layers.GRU(
-            dModel, return_sequences=True, return_state=True, go_backwards=True
+            4**3, return_sequences=True, return_state=True, go_backwards=True
         )(gruPermute, initial_state=mergedReshapedState[:, i, 1])
         stateOuts.append([foreState, backState])
         concatLayer1 = tf.keras.layers.Concatenate(2)
@@ -351,15 +353,15 @@ def useConverterCell(dModel, h, pDropout, layers):
             lastInput = AddNorm()(bypass[i - j + 1], lastInput)
             j *= 2
     permutedState = StatePermuter()(stateOuts)
-    outStateReshaped = tf.keras.layers.Reshape(target_shape=(layers * 2 * dModel,))(
+    outStateReshaped = tf.keras.layers.Reshape(target_shape=(layers * 2 * 4**3,))(
         permutedState
     )
-    outStateDModelReshaped = tf.keras.layers.Reshape(target_shape=(layers * 2, dModel))(
-        permutedState
+    outStateDModelReshaped = tf.keras.layers.Permute((2, 1))(
+        tf.keras.layers.Reshape(target_shape=(layers * 2, 4**3))(permutedState)
     )
-    out = concatLayer0([lastInput, outStateDModelReshaped])
+    out = tf.keras.layers.Concatenate(1)([lastInput, outStateDModelReshaped])
     outReshaped = tf.keras.layers.Reshape(
-        target_shape=((4**3 + layers * 2) * dModel,)
+        target_shape=(4**3 * (layers * 2 + dModel),)
     )(out)
     return tf.keras.Model(
         inputs=[input, stateInput], outputs=[outReshaped, outStateReshaped]
@@ -370,8 +372,8 @@ class ConverterCell(tf.keras.Model):
     def __init__(self, dModel, h, pDropout, layers, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.cell = useConverterCell(dModel, h, pDropout, layers)
-        self.state_size = layers * 2 * dModel
-        self.output_size = (4**3 + layers * 2) * dModel
+        self.state_size = layers * 2 * 4**3
+        self.output_size = 4**3 * (layers * 2 + dModel)
 
     def call(self, *inputs):
         return self.cell(inputs)
@@ -386,6 +388,7 @@ class StateConcatter(tf.keras.Model):
         self.dModel = dModel
         self.layersCount = layers
 
+    # 4**3, dModel + layers * 2
     def call(self, inputs):
         input0Shape = inputs[0].shape
         input0 = tf.tile(inputs[0][:, :, :, :, tf.newaxis], (1, 1, 1, 1, self.dModel))
@@ -393,20 +396,23 @@ class StateConcatter(tf.keras.Model):
             inputs[1]
             if len(inputs) == 2
             else tf.zeros(
-                (input0Shape[0] * input0Shape[1] * self.layersCount * 2 * self.dModel,)
+                (input0Shape[0] * input0Shape[1] * 4**3 * self.layersCount * 2,)
             )
         )
-        input1 = tf.reshape(
-            input1,
-            (input0Shape[0], input0Shape[1], -1, self.layersCount * 2, self.dModel),
-        )[:, :, 0:1, :, :]
+        input1 = tf.transpose(
+            tf.reshape(
+                input1,
+                (input0Shape[0], input0Shape[1], -1, self.layersCount * 2, 4**3),
+            )[:, :, 0:1, :, :],
+            (0, 1, 2, 4, 3),
+        )
         input1Pad = tf.zeros(
             (
                 input0Shape[0],
                 input0Shape[1],
                 input0Shape[2] - 1,
+                4**3,
                 self.layersCount * 2,
-                self.dModel,
             )
         )
         input1Concatted = tf.concat((input1, input1Pad), 2)
@@ -418,8 +424,8 @@ class StateConcatter(tf.keras.Model):
             input0Shape[0],
             input0Shape[1],
             input0Shape[2],
-            4**3 + self.layersCount * 2,
-            self.dModel,
+            4**3,
+            self.dModel + self.layersCount * 2,
         )
 
 
@@ -430,14 +436,14 @@ class StateSplitter(tf.keras.Model):
         self.layersCount = layers
 
     def call(self, input):
-        ret, state = tf.split(input, [4**3, self.layersCount * 2], 3)
+        ret, state = tf.split(input, [self.layersCount * 2, self.dModel], 4)
         return ret, state[:, :, -1, :, :]
 
     def compute_output_shape(self, inputShapes):
         input0Shape = inputShapes
         return (
             (input0Shape[0], input0Shape[1], input0Shape[2], 4**3, self.dModel),
-            (input0Shape[0], input0Shape[1], self.layersCount * 2, self.dModel),
+            (input0Shape[0], input0Shape[1], self.layersCount * 2, 4**3),
         )
 
 
@@ -455,7 +461,7 @@ def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
         target_shape=((4**log4Size) ** 3, (log4Size + 1), 4**3)
     )(input)
     stateInput = tf.keras.layers.Input(
-        shape=(numRecur * (4**log4Size) ** 3 * layers * 2 * dModel,)
+        shape=(numRecur * (4**log4Size) ** 3 * layers * 2 * 4**3,)
     )
     concatterLayer = StateConcatter(dModel, layers)
     splitterLayer = StateSplitter(dModel, layers)
@@ -475,10 +481,10 @@ def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
     encoderStates = []
     bypass = []
     reshapeFlatten = tf.keras.layers.Reshape(
-        target_shape=((4**log4Size) ** 3, log4Size + 1, (4**3 + layers * 2) * dModel)
+        target_shape=((4**log4Size) ** 3, log4Size + 1, 4**3 * (layers * 2 + dModel))
     )
     reshapeUnflatten = tf.keras.layers.Reshape(
-        target_shape=((4**log4Size) ** 3, log4Size + 1, 4**3 + layers * 2, dModel)
+        target_shape=((4**log4Size) ** 3, log4Size + 1, 4**3, (layers * 2 + dModel))
     )
     for i in range(numRecur):
         encoderCell = reshapeUnflatten(
@@ -539,7 +545,7 @@ class Converter(tf.keras.Model):
     ):
         super().__init__(*args, **kwargs)
         self.converter = useConverter(dModel, h, pDropout, layers, log4Size, numRecur)
-        self.state_size = numRecur * (4**log4Size) ** 3 * layers * 2 * dModel
+        self.state_size = numRecur * (4**log4Size) ** 3 * layers * 2 * 4**3
         self.output_size = (4**log4Size) ** 3 * (log4Size + 1) * 4**3
 
     def call(self, *inputs):
@@ -561,7 +567,7 @@ def useRecursiveTransformer(
 ):
     input = tf.keras.Input(shape=(timeSteps, 4 ** (log4Size + 1)))
     stateInput = tf.keras.Input(
-        shape=(numRecur * (4**log4Size) ** 3 * layers * 2 * dModel,)
+        shape=(numRecur * (4**log4Size) ** 3 * layers * 2 * 4**3,)
     )
     embedding = tf.keras.layers.TimeDistributed(
         tf.keras.layers.Embedding(
@@ -621,8 +627,8 @@ def predict():
 
 def summarize():
     graph = buildGraph(model)
-    tf.summary.trace_on(True, True)
-    graph((tf.zeros((1, 4, 64), dtype="int32"), tf.random.uniform((1, 33554432))))
+    tf.summary.trace_on(True)
+    graph((tf.zeros((1, 4, 64), dtype="int32"), tf.random.uniform((1, 67108864))))
     writer = tf.summary.create_file_writer("./tensorboard")
     with writer.as_default():
         tf.summary.trace_export("graph", step=0, profiler_outdir="./tensorboard")
