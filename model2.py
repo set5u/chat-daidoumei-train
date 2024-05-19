@@ -615,10 +615,14 @@ model.summary()
 
 def loader():
     while True:
-        startIndex = math.floor(
-            random.random() * (len(flattenTokens) - 4 ** (log4Size + 1))
-        )
-        offset = math.floor(random.random() * 4 ** (log4Size + 1))
+        for i in range(batchSize):
+            startIndex = math.floor(
+                random.random() * (len(flattenTokens) - 4 ** (log4Size + 1))
+            )
+            count = (
+                math.floor(random.random() * 4 ** (log4Size + 1))
+                + 4 ** (log4Size + 1) * timeSteps
+            )
 
 
 def train():
