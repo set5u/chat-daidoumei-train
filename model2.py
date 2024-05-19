@@ -558,10 +558,8 @@ def useRecursiveTransformer(
         target_shape=(None, (4**log4Size) ** 3, log4Size + 1, 4**3)
     )(converterLayer)
     extract = Extractor(log4Size)(reshape)
-    outputDense = tf.keras.layers.EinsumDense(
-        "abcde,de->abcd",
-        (None, 4 ** (log4Size + 1), 4 ** (log4Size + 1)),
-        activation="softmax",
+    outputDense = tf.keras.layers.TimeDistributed(
+        tf.keras.layers.TimeDistributed(tf.keras.layers.Dense(depthOutput))
     )(extract)
     return tf.keras.Model(inputs=[input, stateInput], outputs=[outputDense, state])
 
