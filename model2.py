@@ -64,7 +64,6 @@ class AddNorm(tf.keras.Model):
         self.norm = tf.keras.layers.LayerNormalization()
 
     def build(self, input_shape):
-        print(input_shape)
         self.norm.build(
             input_shape[0][0]
             if isinstance(input_shape[0][0], tuple)
@@ -257,9 +256,12 @@ class StatePermuter(tf.keras.Model):
 
 
 def useConverterCell(dModel, h, pDropout, layers):
-    input = tf.keras.layers.Input(shape=(4**3 + layers * 2, dModel))
+    input = tf.keras.layers.Input(shape=((4**3 + layers * 2) * dModel,))
     stateInput = tf.keras.layers.Input(shape=(layers * 2 * dModel,))
-    splittedInput, splittedState = Splitter([4**3, layers * 2])(input)
+    reshapedInput = tf.keras.layers.Reshape(target_shape=(4**3 + layers * 2, dModel))(
+        input
+    )
+    splittedInput, splittedState = Splitter([4**3, layers * 2])(reshapedInput)
     reshapedState = tf.keras.layers.Reshape(target_shape=(layers * 2 * dModel,))(
         splittedState
     )
@@ -320,14 +322,20 @@ def useConverterCell(dModel, h, pDropout, layers):
         permutedState
     )
     out = concatLayer0([lastInput, outStateDModelReshaped])
-    return tf.keras.Model(inputs=[input, stateInput], outputs=[out, outStateReshaped])
+    outReshaped = tf.keras.layers.Reshape(
+        target_shape=((4**3 + layers * 2) * dModel,)
+    )(out)
+    return tf.keras.Model(
+        inputs=[input, stateInput], outputs=[outReshaped, outStateReshaped]
+    )
 
 
 class ConverterCell(tf.keras.Model):
     def __init__(self, dModel, h, pDropout, layers, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.cell = useConverterCell(dModel, h, pDropout, layers)
-        self.state_size = 4**log4Size * layers * dModel
+        self.state_size = layers * 2 * dModel
+        self.output_size = (4**3 + layers * 2) * dModel
 
     def call(self, *inputs):
         return self.cell(*inputs)
@@ -369,7 +377,7 @@ class StateConcatter(tf.keras.Model):
         return tf.concat((input0, input1Concatted), 3)
 
     def compute_output_shape(self, inputShapes):
-        input0Shape = inputShapes[0] if len(inputShapes) == 2 else inputShapes
+        input0Shape = inputShapes[0]
         return (
             input0Shape[0],
             input0Shape[1],
@@ -398,13 +406,10 @@ class StateSplitter(tf.keras.Model):
 
 
 def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
-    input = tf.keras.layers.Input(
-        shape=(
-            (4**log4Size) ** 3,
-            log4Size + 1,
-            4**3,
-        )
-    )
+    input = tf.keras.layers.Input(shape=((4**log4Size) ** 3 * (log4Size + 1) * 4**3,))
+    inputReshaped = tf.keras.layers.Reshape(
+        target_shape=((4**log4Size) ** 3, (log4Size + 1), 4**3)
+    )(input)
     stateInput = tf.keras.layers.Input(
         shape=(numRecur * (4**log4Size) ** 3 * layers * 2 * dModel,)
     )
@@ -420,13 +425,21 @@ def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
     encoderDenseLayer = tf.keras.layers.EinsumDense(
         "abcde,de->abcd", ((4**log4Size) ** 3, log4Size + 1, 4**3)
     )
-    concatter = concatterLayer((input, stateInput))
+    concatter = concatterLayer((inputReshaped, stateInput))
     lastEncoderOutput = concatter
-    lastEncoderBypass = input
+    lastEncoderBypass = inputReshaped
     encoderStates = []
     bypass = []
+    reshapeFlatten = tf.keras.layers.Reshape(
+        target_shape=((4**log4Size) ** 3, log4Size + 1, (4**3 + layers * 2) * dModel)
+    )
+    reshapeUnflatten = tf.keras.layers.Reshape(
+        target_shape=((4**log4Size) ** 3, log4Size + 1, 4**3 + layers * 2, dModel)
+    )
     for i in range(numRecur):
-        encoderCell = encoderCellLayer(lastEncoderOutput)
+        encoderCell = reshapeUnflatten(
+            encoderCellLayer(reshapeFlatten(lastEncoderOutput))
+        )
         splitter, state = splitterLayer(encoderCell)
         encoderStates.append(state)
         encoderDense = encoderDenseLayer(splitter)
@@ -438,7 +451,7 @@ def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
             lastEncoderBypass = AddNorm()(bypass[i - j + 1], lastEncoderBypass)
             j *= 2
         lastDecoderOutput = lastEncoderBypass
-        concatter = concatterLayer(lastEncoderBypass)
+        concatter = concatterLayer((lastEncoderBypass,))
         lastEncoderOutput = concatter
 
     # state.unstack.reverse -> concat output and state
@@ -455,7 +468,7 @@ def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
     decoderStates = []
     for i in range(numRecur):
         concatter = concatterLayer((lastDecoderOutput, encoderStates[i]))
-        decoderCell = decoderCellLayer(concatter)
+        decoderCell = reshapeUnflatten(decoderCellLayer(reshapeFlatten(concatter)))
         splitter, state = splitterLayer(decoderCell)
         decoderStates.append(state)
         decoderDense = decoderDenseLayer(splitter)
