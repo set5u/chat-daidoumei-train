@@ -125,8 +125,10 @@ class InvSoftmax(tf.keras.Model):
         self.softmax = tf.keras.layers.Softmax()
 
     def call(self, input, mask=None):
-        b = -tf.argsort(tf.zeros((input.shape[2],))) / input.shape[2]
-        ret = tf.einsum("abc,d->abcd", input, b) + 1
+        b = tf.cast(
+            -tf.argsort(tf.zeros((input.shape[2],))) / input.shape[2], "float32"
+        )
+        ret = tf.einsum("abcd,d->abcd", input, b)
         return self.softmax(-tf.math.log(ret), mask=mask)
 
     def build(self, input_shape):
@@ -323,26 +325,30 @@ def useConverterCell(dModel, h, pDropout, layers):
             convConcatted, convConcatted
         )
         ff0 = FF(dModel, 64)(attn0)
-        addNorm0 = AddNorm()([ff0, lastInput])
+        addNorm0 = AddNorm()(ff0, lastInput)
         dropout0 = tf.keras.layers.Dropout(pDropout)(addNorm0)
+        gruPermute = tf.keras.layers.Permute((2, 1))(dropout0)
         fore, foreState = tf.keras.layers.GRU(
             dModel, return_sequences=True, return_state=True, go_backwards=False
-        )(dropout0, initial_state=mergedReshapedState[i, 0])
+        )(gruPermute, initial_state=mergedReshapedState[:, i, 0])
         back, backState = tf.keras.layers.GRU(
             dModel, return_sequences=True, return_state=True, go_backwards=True
-        )(dropout0, initial_state=mergedReshapedState[i, 1])
+        )(gruPermute, initial_state=mergedReshapedState[:, i, 1])
         stateOuts.append([foreState, backState])
-        concatLayer1 = tf.keras.layers.Concatenate(1)
+        concatLayer1 = tf.keras.layers.Concatenate(2)
         foreback = concatLayer1([fore, back])
-        attn1 = tf.keras.layers.MultiHeadAttention(h, dModel // h)(foreback, foreback)
+        attnPermute = tf.keras.layers.Permute((2, 1))(foreback)
+        attn1 = tf.keras.layers.MultiHeadAttention(h, dModel // h)(
+            attnPermute, attnPermute
+        )
         ff1 = FF(dModel, 64)(attn1)
-        addNorm1 = AddNorm()([ff1, dropout0])
+        addNorm1 = AddNorm()(ff1, dropout0)
         dropout1 = tf.keras.layers.Dropout(pDropout)(addNorm1)
         bypass.append(dropout1)
         lastInput = dropout1
         j = 1
         while (i + 1) % j == 0:
-            lastInput = AddNorm()([bypass[i - j + 1], lastInput])
+            lastInput = AddNorm()(bypass[i - j + 1], lastInput)
             j *= 2
     permutedState = StatePermuter()(stateOuts)
     outStateReshaped = tf.keras.layers.Reshape(target_shape=(layers * 2 * dModel,))(
@@ -368,7 +374,7 @@ class ConverterCell(tf.keras.Model):
         self.output_size = (4**3 + layers * 2) * dModel
 
     def call(self, *inputs):
-        return self.cell(*inputs)
+        return self.cell(inputs)
 
     def compute_output_shape(self, inputShape):
         return inputShape
@@ -392,8 +398,8 @@ class StateConcatter(tf.keras.Model):
         )
         input1 = tf.reshape(
             input1,
-            (input0Shape[0], input0Shape[1], 1, self.layersCount * 2, self.dModel),
-        )
+            (input0Shape[0], input0Shape[1], -1, self.layersCount * 2, self.dModel),
+        )[:, :, 0:1, :, :]
         input1Pad = tf.zeros(
             (
                 input0Shape[0],
@@ -525,11 +531,11 @@ class Converter(tf.keras.Model):
     ):
         super().__init__(*args, **kwargs)
         self.converter = useConverter(dModel, h, pDropout, layers, log4Size, numRecur)
-        self.state_size = numRecur * 4**log4Size * layers * 2 * dModel
+        self.state_size = numRecur * (4**log4Size) ** 3 * layers * 2 * dModel
         self.output_size = (4**log4Size) ** 3 * (log4Size + 1) * 4**3
 
     def call(self, *inputs):
-        return self.converter(*inputs)
+        return self.converter(inputs)
 
     def compute_output_shape(self, inputShape):
         return inputShape
@@ -546,7 +552,9 @@ def useRecursiveTransformer(
     log4Size,
 ):
     input = tf.keras.Input(shape=(timeSteps, 4 ** (log4Size + 1)))
-    stateInput = tf.keras.Input(shape=(numRecur * 2 * 4**log4Size * dModel * layers,))
+    stateInput = tf.keras.Input(
+        shape=(numRecur * (4**log4Size) ** 3 * layers * 2 * dModel,)
+    )
     embedding = tf.keras.layers.TimeDistributed(
         tf.keras.layers.Embedding(
             input_dim=depthInput, output_dim=4 ** (log4Size + 1), mask_zero=True
@@ -556,7 +564,7 @@ def useRecursiveTransformer(
     invSoftmax = tf.keras.layers.TimeDistributed(InvSoftmax())(invSoftmaxTiler)
     averagedTiler = tf.keras.layers.TimeDistributed(AveragedTiler(log4Size))(invSoftmax)
     tileReshaped = tf.keras.layers.Reshape(
-        target_shape=(-1, (4**log4Size) ** 3 * (log4Size + 1) * 4**3)
+        target_shape=(None, (4**log4Size) ** 3 * (log4Size + 1) * 4**3)
     )(averagedTiler)
     converterLayer, state = tf.keras.layers.RNN(
         Converter(dModel, h, pDropout, layers, log4Size, numRecur),
@@ -577,6 +585,14 @@ def useRecursiveTransformer(
     return tf.keras.Model(inputs=[input, stateInput], outputs=[outputDense, state])
 
 
+def buildGraph(model):
+    @tf.function
+    def call(*x):
+        return model(*x)
+
+    return call
+
+
 with open("./num2char.json") as f:
     num2char = json.loads("".join(f.readlines()))
 with open("./char2num.json") as f:
@@ -585,8 +601,6 @@ with open("./tokens.json") as f:
     tokens = json.loads("".join(f.readlines()))
 depth = len(num2char)
 model = useRecursiveTransformer(32, 4, 0.1, depth, depth, 16, numRecur, log4Size)
-model.summary()
-tf.keras.utils.plot_model(model, "model.png", show_shapes=True)
 
 
 def train():
@@ -597,8 +611,20 @@ def predict():
     pass
 
 
-toTrain = True
+def summarize():
+    graph = buildGraph(model)
+    tf.summary.trace_on(True, True)
+    graph((tf.zeros((1, 4, 64), dtype="int32"), tf.random.uniform((1, 33554432))))
+    writer = tf.summary.create_file_writer("./tensorboard")
+    with writer.as_default():
+        tf.summary.trace_export("graph", step=0, profiler_outdir="./tensorboard")
+
+
+toTrain = False
+toSummarize = True
 if toTrain:
     train()
+elif toSummarize:
+    summarize()
 else:
     predict()
