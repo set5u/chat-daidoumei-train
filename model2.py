@@ -607,9 +607,18 @@ with open("./char2num.json") as f:
     char2num = json.loads("".join(f.readlines()))
 with open("./tokens.json") as f:
     tokens = json.loads("".join(f.readlines()))
+flattenTokens = sum(tokens, [])
 depth = len(num2char)
 model = useRecursiveTransformer(32, 4, 0.1, depth, depth, 16, numRecur, log4Size)
 model.summary()
+
+
+def loader():
+    while True:
+        startIndex = math.floor(
+            random.random() * (len(flattenTokens) - 4 ** (log4Size + 1))
+        )
+        offset = math.floor(random.random() * 4 ** (log4Size + 1))
 
 
 def train():
