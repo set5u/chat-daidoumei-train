@@ -232,6 +232,27 @@ class AveragedTiler(tf.keras.Model):
         return input_shape[0:1] + ((4**self.level) ** 3, self.level + 1, 4**3)
 
 
+class Extractor(tf.keras.Model):
+    def __init__(self, log4Size, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.log4Size = log4Size
+
+    def call(self, inputs):
+        ret = []
+        for i in range(self.log4Size + 1):
+            ret.append(fromTimebasedTensor(inputs[:, :, i, :], 4**log4Size, 4))
+        return tf.permute(ret, (1, 0, 2, 3, 4))
+
+    def compute_output_shape(self, inputShape):
+        return (
+            inputShape[0],
+            inputShape[1],
+            4 ** (log4Size + 1),
+            4 ** (log4Size + 1),
+            4 ** (log4Size + 1),
+        )
+
+
 class Splitter(tf.keras.Model):
     def __init__(self, split, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -480,14 +501,13 @@ def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
             lastDecoderOutput = AddNorm()(bypass[i - j + 1], lastDecoderOutput)
             j *= 2
     decoderStates.reverse()
+    reshapedOutput = tf.keras.layers.Reshape(
+        target_shape=((4**log4Size) ** 3 * (log4Size + 1) * 4**3,)
+    )(lastDecoderOutput)
+    permutedStates = StatePermuter()((decoderStates,))
     return tf.keras.Model(
-        inputs=(input, stateInput), outputs=[lastDecoderOutput] + decoderStates
+        inputs=(input, stateInput), outputs=[reshapedOutput, permutedStates]
     )
-
-
-converter = useConverter(32, 4, 0.1, 16, 2, 8)
-converter.summary()
-tf.keras.utils.plot_model(converter, "converter.png", show_shapes=True)
 
 
 class Converter(tf.keras.Model):
@@ -497,6 +517,7 @@ class Converter(tf.keras.Model):
         super().__init__(*args, **kwargs)
         self.converter = useConverter(dModel, h, pDropout, layers, log4Size, numRecur)
         self.state_size = numRecur * 4**log4Size * layers * 2 * dModel
+        self.output_size = (4**log4Size) ** 3 * (log4Size + 1) * 4**3
 
     def call(self, *inputs):
         return self.converter(*inputs)
@@ -516,8 +537,7 @@ def useRecursiveTransformer(
     log4Size,
 ):
     input = tf.keras.Input(shape=(timeSteps, 4 ** (log4Size + 1)))
-    stateInput = tf.keras.Input(shape=(numRecur, 2 * 4**log4Size * dModel * layers))
-    mask = tf.keras.layers.Minimum()([input, tf.constant([1.0])])
+    stateInput = tf.keras.Input(shape=(numRecur * 2 * 4**log4Size * dModel * layers,))
     embedding = tf.keras.layers.TimeDistributed(
         tf.keras.layers.Embedding(
             input_dim=depthInput, output_dim=4 ** (log4Size + 1), mask_zero=True
@@ -526,13 +546,26 @@ def useRecursiveTransformer(
     invSoftmaxTiler = tf.keras.layers.TimeDistributed(InvSoftmaxTiler())(embedding)
     invSoftmax = tf.keras.layers.TimeDistributed(InvSoftmax())(invSoftmaxTiler)
     averagedTiler = tf.keras.layers.TimeDistributed(AveragedTiler(log4Size))(invSoftmax)
-    converterLayer = tf.keras.layers.RNN(
-        Converter(dModel, h, pDropout, layers, log4Size, numRecur)
-    )
+    converterLayer, state = tf.keras.layers.RNN(
+        Converter(dModel, h, pDropout, layers, log4Size, numRecur),
+        return_state=True,
+        return_sequences=True,
+    )(averagedTiler, initial_state=stateInput)
+    reshape = tf.keras.layers.Reshape(
+        target_shape=(None, (4**log4Size) ** 3, log4Size + 1, 4**3)
+    )(converterLayer)
+    extract = Extractor(log4Size)(reshape)
+    outputDense = tf.keras.layers.EinsumDense(
+        "abcde,de->abcd",
+        (None, 4 ** (log4Size + 1), 4 ** (log4Size + 1)),
+        activation="softmax",
+    )(extract)
+    return tf.keras.Model(inputs=[input, stateInput], outputs=[outputDense, state])
 
 
-# models = useRecursiveTransformer(32, 4, 0.1, 2300, 2300, 16, numRecur, log4Size)
-# print(models)
+model = useRecursiveTransformer(32, 4, 0.1, 2300, 2300, 16, numRecur, log4Size)
+model.summary()
+tf.keras.utils.plot_model(model, "model.png", show_shapes=True)
 
 
 def draw_heatmap(*data, rows=1, cols=1):
