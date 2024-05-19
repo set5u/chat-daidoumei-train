@@ -564,7 +564,7 @@ def useRecursiveTransformer(
     invSoftmax = tf.keras.layers.TimeDistributed(InvSoftmax())(invSoftmaxTiler)
     averagedTiler = tf.keras.layers.TimeDistributed(AveragedTiler(log4Size))(invSoftmax)
     tileReshaped = tf.keras.layers.Reshape(
-        target_shape=(None, (4**log4Size) ** 3 * (log4Size + 1) * 4**3)
+        target_shape=(timeSteps, (4**log4Size) ** 3 * (log4Size + 1) * 4**3)
     )(averagedTiler)
     converterLayer, state = tf.keras.layers.RNN(
         Converter(dModel, h, pDropout, layers, log4Size, numRecur),
@@ -572,7 +572,7 @@ def useRecursiveTransformer(
         return_sequences=True,
     )(tileReshaped, initial_state=stateInput)
     reshape = tf.keras.layers.Reshape(
-        target_shape=(None, (4**log4Size) ** 3, log4Size + 1, 4**3)
+        target_shape=(timeSteps, (4**log4Size) ** 3, log4Size + 1, 4**3)
     )(converterLayer)
     extract = Extractor(log4Size)(reshape)
     outputDense = tf.keras.layers.TimeDistributed(
