@@ -8,7 +8,7 @@ import random
 batchSize = 1
 numRecur = 8
 log4Size = 2  # 64,16,4 = 2, 1小さい値
-timeSteps = 16
+timeSteps = 2
 
 
 def draw_heatmap(*data, rows=1, cols=1):
@@ -73,19 +73,13 @@ class AddNorm(tf.keras.Model):
         self.norm = tf.keras.layers.LayerNormalization()
 
     def build(self, input_shape):
-        self.norm.build(
-            input_shape[0] if isinstance(input_shape[0], tuple) else input_shape
-        )
+        self.norm.build(input_shape)
 
     def call(self, *inputs):
         return self.norm(inputs[0] + inputs[1])
 
     def compute_output_shape(self, input_shape):
-        return (
-            input_shape[0][0]
-            if isinstance(input_shape[0][0], tuple)
-            else input_shape[0]
-        )
+        return input_shape
 
 
 class FF(tf.keras.Model):
@@ -277,7 +271,7 @@ class Splitter(tf.keras.Model):
 
 class StatePermuter(tf.keras.Model):
     def call(self, input):
-        return tf.transpose(input, (1, 0, 2, 3))
+        return tf.transpose(input, (2, 0, 1, 3))
 
     def compute_output_shape(self, input_shape):
         return input_shape[0][0][0:1] + (len(input_shape) * 2,) + input_shape[0][0][1:]
@@ -438,8 +432,8 @@ class StateSplitter(tf.keras.Model):
         self.layersCount = layers
 
     def call(self, input):
-        ret, state = tf.split(input, [self.layersCount * 2, self.dModel], 4)
-        return ret, state[:, :, -1, :, :]
+        ret, state = tf.split(input, [self.dModel, self.layersCount * 2], 4)
+        return ret, tf.transpose(state[:, :, -1, :, :], (0, 1, 3, 2))
 
     def compute_output_shape(self, inputShapes):
         input0Shape = inputShapes
@@ -452,7 +446,7 @@ class StateSplitter(tf.keras.Model):
 
 class DecoderStatePermuter(tf.keras.Model):
     def call(self, input):
-        return tf.transpose(input, (1, 0, 2, 3, 4))
+        return tf.transpose(input[0], (1, 0, 2, 3, 4))
 
     def compute_output_shape(self, input_shape):
         return input_shape[0][0][0:1] + (len(input_shape) * 2,) + input_shape[0][0][1:]
@@ -551,6 +545,9 @@ class Converter(tf.keras.Model):
         self.state_size = numRecur * (4**log4Size) ** 3 * layers * 2 * 4**3
         self.output_size = (4**log4Size) ** 3 * (log4Size + 1) * 4**3
 
+    def build(self, inputShape):
+        self.converter.build(inputShape)
+
     def call(self, *inputs):
         return self.converter(inputs)
 
@@ -568,9 +565,12 @@ def useRecursiveTransformer(
     numRecur,
     log4Size,
 ):
-    input = tf.keras.Input(shape=(timeSteps, 4 ** (log4Size + 1)))
+    input = tf.keras.Input(batch_shape=(batchSize, timeSteps, 4 ** (log4Size + 1)))
     stateInput = tf.keras.Input(
-        shape=(numRecur * (4**log4Size) ** 3 * layers * 2 * 4**3,)
+        batch_shape=(
+            batchSize,
+            numRecur * (4**log4Size) ** 3 * layers * 2 * 4**3,
+        )
     )
     embedding = tf.keras.layers.TimeDistributed(
         tf.keras.layers.Embedding(input_dim=depthInput, output_dim=4 ** (log4Size + 1))
@@ -600,14 +600,6 @@ def useRecursiveTransformer(
     return tf.keras.Model(inputs=[input, stateInput], outputs=[outputDense, state])
 
 
-def buildGraph(model):
-    @tf.function
-    def call(*x):
-        return model(*x)
-
-    return call
-
-
 with open("./num2char.json") as f:
     num2char = json.loads("".join(f.readlines()))
 with open("./char2num.json") as f:
@@ -616,6 +608,14 @@ with open("./tokens.json") as f:
     tokens = json.loads("".join(f.readlines()))
 depth = len(num2char)
 model = useRecursiveTransformer(32, 4, 0.1, depth, depth, 16, numRecur, log4Size)
+
+
+def buildGraph(model):
+    @tf.function
+    def call(*x):
+        return model(*x)
+
+    return call
 
 
 def train():
@@ -627,7 +627,7 @@ def predict():
 
 
 def summarize():
-    print(model.summary())
+    model.summary(expand_nested=True)
     graph = buildGraph(model)
     tf.summary.trace_on(True)
     graph(
@@ -636,9 +636,9 @@ def summarize():
             tf.random.uniform((batchSize, 67108864)),
         )
     )
-    writer = tf.summary.create_file_writer("./tensorboard")
+    writer = tf.summary.create_file_writer("./graph")
     with writer.as_default():
-        tf.summary.trace_export("graph", step=0, profiler_outdir="./tensorboard")
+        tf.summary.trace_export("graph", step=0, profiler_outdir="./graph")
 
 
 toTrain = False
