@@ -418,7 +418,7 @@ class StateConcatter(tf.keras.Model):
             )
         )
         input1Concatted = tf.concat((input1, input1Pad), 2)
-        return tf.concat((input0, input1Concatted), 3)
+        return tf.concat((input0, input1Concatted), 4)
 
     def compute_output_shape(self, inputShapes):
         input0Shape = inputShapes[0]
@@ -443,9 +443,10 @@ class StateSplitter(tf.keras.Model):
 
     def compute_output_shape(self, inputShapes):
         input0Shape = inputShapes
+        batch_size = input0Shape[0] if batchSize is None else batchSize
         return (
-            (input0Shape[0], input0Shape[1], input0Shape[2], 4**3, self.dModel),
-            (input0Shape[0], input0Shape[1], self.layersCount * 2, 4**3),
+            (batch_size, input0Shape[1], input0Shape[2], 4**3, self.dModel),
+            (batch_size, input0Shape[1], self.layersCount * 2, 4**3),
         )
 
 
