@@ -441,6 +441,14 @@ class StateSplitter(tf.keras.Model):
         )
 
 
+class DecoderStatePermuter(tf.keras.Model):
+    def call(self, input):
+        return tf.transpose(input, (1, 0, 2, 3, 4))
+
+    def compute_output_shape(self, input_shape):
+        return input_shape[0][0][0:1] + (len(input_shape) * 2,) + input_shape[0][0][1:]
+
+
 def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
     input = tf.keras.layers.Input(shape=((4**log4Size) ** 3 * (log4Size + 1) * 4**3,))
     inputReshaped = tf.keras.layers.Reshape(
@@ -519,7 +527,7 @@ def useConverter(dModel, h, pDropout, layers, log4Size, numRecur):
     reshapedOutput = tf.keras.layers.Reshape(
         target_shape=((4**log4Size) ** 3 * (log4Size + 1) * 4**3,)
     )(lastDecoderOutput)
-    permutedStates = StatePermuter()((decoderStates,))
+    permutedStates = DecoderStatePermuter()((decoderStates,))
     return tf.keras.Model(
         inputs=(input, stateInput), outputs=[reshapedOutput, permutedStates]
     )
