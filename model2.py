@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 import math
 import random
 
-batchSize = 1
+tf.config.run_functions_eagerly(True)
+batchSize = 3
 numRecur = 8
 log4Size = 1  # 16,4 = 2, 1小さい値
 timeSteps = 2
@@ -73,13 +74,13 @@ class AddNorm(tf.keras.Model):
         self.norm = tf.keras.layers.LayerNormalization()
 
     def build(self, input_shape):
-        self.norm.build(input_shape)
+        self.norm.build(input_shape[0])
 
     def call(self, *inputs):
         return self.norm(inputs[0] + inputs[1])
 
     def compute_output_shape(self, input_shape):
-        return input_shape
+        return input_shape[0]
 
 
 class FF(tf.keras.Model):
@@ -97,8 +98,8 @@ class FF(tf.keras.Model):
         self.maxLen = maxLen
 
     def build(self, input_shape):
-        self.ff0.build(input_shape)
-        self.ff1.build(input_shape)
+        self.ff0.build(input_shape[0])
+        self.ff1.build(input_shape[0])
 
     def call(self, *inputs):
         ret = self.ff0(inputs[0])
@@ -119,7 +120,7 @@ class InvSoftmax(tf.keras.Model):
         b = tf.cast(
             -tf.argsort(tf.zeros((input.shape[2],))) / input.shape[2], "float32"
         )
-        ret = tf.einsum("abcd,d->abcd", input, b)
+        ret = tf.abs(input - b[tf.newaxis, tf.newaxis, tf.newaxis])
         return self.softmax(-tf.math.log(ret), mask=mask)
 
     def build(self, input_shape):
@@ -271,7 +272,7 @@ class Splitter(tf.keras.Model):
 
 class StatePermuter(tf.keras.Model):
     def call(self, input):
-        return tf.transpose(input, (2, 0, 1, 3))
+        return tf.transpose(input, (0, 1, 2, 3))
 
     def compute_output_shape(self, input_shape):
         return input_shape[0][0][0:1] + (len(input_shape) * 2,) + input_shape[0][0][1:]
@@ -638,7 +639,7 @@ def loader():
         yield (np.array(xs), np.array(ys))
 
 
-models = useRecursiveTransformer(32, 4, 0.1, depth, depth, 4, numRecur, log4Size)
+models = useRecursiveTransformer(32, 4, 0.1, depth, depth, 16, numRecur, log4Size)
 models["trainer"].summary()
 
 
@@ -663,6 +664,7 @@ def train():
         optimizer,
         loss="sparse_categorical_crossentropy",
         metrics=["accuracy"],
+        run_eagerly=True,
     )
     while True:
         print("epoch" + str(epoch))
