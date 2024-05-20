@@ -347,7 +347,7 @@ def useConverterCell(dModel, h, pDropout, layers):
     outStateDModelReshaped = tf.keras.layers.Permute((2, 1))(
         tf.keras.layers.Reshape(target_shape=(layers * 2, 4**3))(permutedState)
     )
-    out = tf.keras.layers.Concatenate(1)([lastInput, outStateDModelReshaped])
+    out = tf.keras.layers.Concatenate(2)([lastInput, outStateDModelReshaped])
     outReshaped = tf.keras.layers.Reshape(
         target_shape=(4**3 * (dModel + layers * 2),)
     )(out)
