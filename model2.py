@@ -614,7 +614,7 @@ with open("./tokens.json") as f:
     tokens = json.loads("".join(f.readlines()))
 flattenTokens = sum(tokens, [])
 depth = len(num2char)
-stepsPerEpoch = 4
+stepsPerEpoch = 1
 
 
 def loader():
@@ -623,7 +623,8 @@ def loader():
         ys = []
         for i in range(batchSize * stepsPerEpoch):
             startIndex = math.floor(
-                random.random() * (len(flattenTokens) - 4 ** (log4Size + 1))
+                random.random()
+                * (len(flattenTokens) - 4 ** (log4Size + 1) * (timeSteps + 1))
             )
             count = (
                 math.floor(random.random() * 4 ** (log4Size + 1))
@@ -634,10 +635,10 @@ def loader():
             r = np.array(r).reshape(timeSteps + 1, 4 ** (log4Size + 1))
             xs.append(r[0:-1])
             ys.append(r[1:])
-        yield (xs, ys)
+        yield (np.array(xs), np.array(ys))
 
 
-models = useRecursiveTransformer(32, 4, 0.1, depth, depth, 16, numRecur, log4Size)
+models = useRecursiveTransformer(32, 4, 0.1, depth, depth, 4, numRecur, log4Size)
 models["trainer"].summary()
 
 
@@ -654,9 +655,15 @@ class Callback(tf.keras.callbacks.Callback):
 
 
 def train():
-    state = tf.zeros((batchSize, 262144))
+    state = tf.zeros((batchSize * stepsPerEpoch, 1048576))
     trainDatas = loader()
     epoch = 0
+    optimizer = tf.keras.optimizers.Adadelta(1.0)
+    models["trainer"].compile(
+        optimizer,
+        loss="sparse_categorical_crossentropy",
+        metrics=["accuracy"],
+    )
     while True:
         print("epoch" + str(epoch))
         data = next(trainDatas)
@@ -674,8 +681,7 @@ def predict():
     pass
 
 
-toTrain = False
-toSummarize = True
+toTrain = True
 if toTrain:
     train()
 else:
