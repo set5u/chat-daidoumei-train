@@ -120,7 +120,7 @@ class InvSoftmax(tf.keras.Model):
         b = tf.cast(
             -tf.argsort(tf.zeros((input.shape[2],))) / input.shape[2], "float32"
         )
-        ret = tf.abs(input - b[tf.newaxis, tf.newaxis, tf.newaxis])
+        ret = tf.abs(input - b[tf.newaxis, tf.newaxis, tf.newaxis]) + 1.0
         return self.softmax(-tf.math.log(ret), mask=mask)
 
     def build(self, input_shape):
