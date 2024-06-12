@@ -113,6 +113,36 @@ def useBERTLarge(
     return model
 
 
+def useBERTTeacher(
+    depthInput,
+    depthOutput,
+    embeddingD=128,
+    dModelInter=256,
+    dModelIntra=512,
+    dFF=1024,
+    h=4,
+    maxLen=8,
+    layers=24,
+):
+    pass
+
+
+def useBERTStudent(
+    depthInput,
+    depthOutput,
+    embeddingD=128,
+    dModelInter=256,
+    dModelIntra=128,
+    dFF=256,
+    h=4,
+    r=2,
+    maxLen=8,
+    layers=24,
+):
+    pass
+    # xF == queue horizonal
+
+
 with open("./num2word.json") as f:
     num2word = json.loads("".join(f.readlines()))
 with open("./word2num.json") as f:
@@ -143,33 +173,3 @@ def loader():
 
 
 data = loader()
-
-
-def useBERTTeacher(
-    depthInput,
-    depthOutput,
-    embeddingD=128,
-    dModelInter=256,
-    dModelIntra=512,
-    dFF=1024,
-    h=4,
-    maxLen=8,
-    layers=24,
-):
-    pass
-
-
-def useBERTStudent(
-    depthInput,
-    depthOutput,
-    embeddingD=128,
-    dModelInter=256,
-    dModelIntra=128,
-    dFF=512,
-    h=4,
-    r=2,
-    maxLen=8,
-    layers=24,
-):
-    pass
-    # xF == queue horizonal
