@@ -83,44 +83,6 @@ def useBERTLarge(
 def useBERTTeacher(
     depthInput,
     depthOutput,
-    embeddingD,
-    dModelInter,
-    dModelIntra,
-    dFF,
-    h,
-    maxLen,
-    layers,
-):
-    pass
-
-
-def useBERTTeacher0(
-    depthInput,
-    depthOutput,
-    embeddingD=1024,
-    dModelInter=512,
-    dModelIntra=1024,
-    dFF=4096,
-    h=4,
-    maxLen=8,
-    layers=24,
-):
-    return useBERTTeacher(
-        depthInput,
-        depthOutput,
-        embeddingD,
-        dModelInter,
-        dModelIntra,
-        dFF,
-        h,
-        maxLen,
-        layers,
-    )
-
-
-def useBERTTeacher1(
-    depthInput,
-    depthOutput,
     embeddingD=128,
     dModelInter=512,
     dModelIntra=1024,
@@ -129,17 +91,7 @@ def useBERTTeacher1(
     maxLen=8,
     layers=24,
 ):
-    return useBERTTeacher(
-        depthInput,
-        depthOutput,
-        embeddingD,
-        dModelInter,
-        dModelIntra,
-        dFF,
-        h,
-        maxLen,
-        layers,
-    )
+    pass
 
 
 def useBERTStudent(
