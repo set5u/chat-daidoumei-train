@@ -2,16 +2,18 @@ import json from "@rollup/plugin-json";
 import commonjs from "@rollup/plugin-commonjs";
 import nodeResolve from "@rollup/plugin-node-resolve";
 import terser from "@rollup/plugin-terser";
+import typescript from "@rollup/plugin-typescript";
 import babel from "@rollup/plugin-babel";
 
 export default {
-  input: ["index.mjs", "predict.mjs"],
+  input: ["tokenize.ts"],
   output: {
     dir: "dist",
     format: "cjs",
   },
   plugins: [
     json(),
+    typescript(),
     nodeResolve({ transformMixedEsModules: true }),
     commonjs({ ignoreDynamicRequires: true }),
     babel({
@@ -30,6 +32,6 @@ export default {
       ],
       babelHelpers: "runtime",
     }),
-    // terser()
+    // terser(),
   ],
 };
