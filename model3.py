@@ -68,15 +68,91 @@ class FF(tf.keras.Model):
 
 
 def useBERTLarge(
-    depthInput, depthOutput, dModel=1024, dFF=4096, h=16, maxLen=8, layers=24
+    depthInput,
+    depthOutput,
+    embeddingD=1024,
+    dModel=1024,
+    dFF=4096,
+    h=16,
+    maxLen=8,
+    layers=24,
 ):
     pass
 
 
-def useBERTTeacher():
+def useBERTTeacher(
+    depthInput,
+    depthOutput,
+    embeddingD,
+    dModelInter,
+    dModelIntra,
+    dFF,
+    h,
+    maxLen,
+    layers,
+):
     pass
 
 
-def useBERTStudent():
+def useBERTTeacher0(
+    depthInput,
+    depthOutput,
+    embeddingD=1024,
+    dModelInter=512,
+    dModelIntra=1024,
+    dFF=4096,
+    h=4,
+    maxLen=8,
+    layers=24,
+):
+    return useBERTTeacher(
+        depthInput,
+        depthOutput,
+        embeddingD,
+        dModelInter,
+        dModelIntra,
+        dFF,
+        h,
+        maxLen,
+        layers,
+    )
+
+
+def useBERTTeacher1(
+    depthInput,
+    depthOutput,
+    embeddingD=128,
+    dModelInter=512,
+    dModelIntra=1024,
+    dFF=4096,
+    h=4,
+    maxLen=8,
+    layers=24,
+):
+    return useBERTTeacher(
+        depthInput,
+        depthOutput,
+        embeddingD,
+        dModelInter,
+        dModelIntra,
+        dFF,
+        h,
+        maxLen,
+        layers,
+    )
+
+
+def useBERTStudent(
+    depthInput,
+    depthOutput,
+    embeddingD=128,
+    dModelInter=512,
+    dModelIntra=128,
+    dFF=512,
+    h=4,
+    r=4,
+    maxLen=8,
+    layers=24,
+):
     pass
     # xF == queue horizonal
