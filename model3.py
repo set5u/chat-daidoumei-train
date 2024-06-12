@@ -67,7 +67,7 @@ class FF(tf.keras.Model):
         return input_shape[0][0:1] + (self.maxLen, self.dModel)
 
 
-def useBERTLarge(dModel, dFF, h, depthInput, depthOutput, layers):
+def useBERTLarge(dModel, dFF, h, maxLen, depthInput, depthOutput, layers):
     pass
 
 
