@@ -49,8 +49,14 @@ class AddNorm(tf.keras.Model):
 class FF(tf.keras.Model):
     def __init__(self, dModel, dFF, maxLen, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.ff0 = tf.keras.layers.Dense(dFF, activation="relu")
-        self.ff1 = tf.keras.layers.Dense(dModel, activation="linear")
+        self.ff0 = tf.keras.layers.EinsumDense(
+            "abcd,de->abce",
+            (None, maxLen, dFF),
+            activation="relu",
+        )
+        self.ff1 = tf.keras.layers.EinsumDense(
+            "abce,de->abcd", (None, maxLen, dModel), activation="linear"
+        )
         self.dModel = dModel
         self.maxLen = maxLen
 
@@ -72,36 +78,49 @@ class Reducer(tf.keras.Model):
         return tf.reduce_sum(input, 2)
 
 
-def useBERTLarge(
+class Splitter(tf.keras.Model):
+    def call(self, input):
+        return tf.split(input, 2, 3)
+
+
+class FFPermuter(tf.keras.Model):
+    def call(self, input):
+        return tf.transpose(input, (1, 2, 3, 4, 0))
+
+
+def useBERTTeacher(
     depthInput,
     depthOutput,
-    embeddingD=512,
-    dModel=512,
-    dFF=2048,
-    h=16,
+    dModelInter=128,
+    dFF=1024,
+    h=4,
     maxLen=8,
     layers=24,
 ):
     input = tf.keras.layers.Input((None, maxLen))
-    embedding = tf.keras.layers.Embedding(depthInput, embeddingD)(input)
+    embedding = tf.keras.layers.Embedding(depthInput, dModelInter)(input)
     bypass = []
     lastOutput = embedding
+    attns = []
     for i in range(layers):
-        multiHeadAttention = tf.keras.layers.MultiHeadAttention(h, dModel)(
-            lastOutput, lastOutput
-        )
-        addNorm0 = AddNorm()(multiHeadAttention, lastOutput)
-        ff = tf.keras.layers.TimeDistributed(FF(dModel, dFF, maxLen))(addNorm0)
-        addNorm1 = AddNorm()(addNorm0, ff)
-        bypass.append(addNorm1)
-        lastOutput = addNorm1
-        j = 1
+        conv0 = tf.keras.layers.Conv2D(dModelInter, 1)(lastOutput)
+        attnLayer = tf.keras.layers.MultiHeadAttention(h, dModelInter)
+        attns.append(attnLayer)
+        attn = attnLayer(lastOutput, lastOutput)
+        addNorm0 = AddNorm()(conv0, attn)
+        ff = FF(dModelInter, dFF, maxLen)(addNorm0)
+        addNorm1 = AddNorm()(ff, addNorm0)
+        conv1 = tf.keras.layers.Conv2D(dModelInter, 1)(addNorm1)
+        addNorm2 = AddNorm()(lastOutput, conv1)
+        bypass.append(lastOutput)
+        lastOutput = addNorm2
+        j = 2
         while (i + 1) % j == 0:
             lastOutput = AddNorm()(bypass[i - j + 1], lastOutput)
             j *= 2
-    attn = tf.keras.layers.MultiHeadAttention(h, dModel)(lastOutput, lastOutput)
+    attn = tf.keras.layers.MultiHeadAttention(h, dModelInter)(lastOutput, lastOutput)
     reducer = Reducer()(attn)
-    gru = tf.keras.layers.GRU(dModel)(reducer)
+    gru = tf.keras.layers.GRU(dModelInter)(reducer)
     dense = tf.keras.layers.Dense(depthOutput, activation="softmax")(gru)
     model = tf.keras.Model(input, dense)
     optimizer = tf.keras.optimizers.Adadelta(1.0)
@@ -110,37 +129,57 @@ def useBERTLarge(
         loss="sparse_categorical_crossentropy",
         metrics=["accuracy"],
     )
-    return model
-
-
-def useBERTTeacher(
-    depthInput,
-    depthOutput,
-    embeddingD=128,
-    dModelInter=256,
-    dModelIntra=512,
-    dFF=1024,
-    h=4,
-    maxLen=8,
-    layers=24,
-):
-    pass
+    return model, attns
 
 
 def useBERTStudent(
     depthInput,
     depthOutput,
-    embeddingD=128,
-    dModelInter=256,
-    dModelIntra=128,
-    dFF=256,
+    dModelInter=128,
+    dModelIntra=64,
+    dFF=128,
     h=4,
     r=2,
     maxLen=8,
     layers=24,
 ):
-    pass
-    # xF == queue horizonal
+    input = tf.keras.layers.Input((None, maxLen))
+    embedding = tf.keras.layers.Embedding(depthInput, dModelInter)(input)
+    bypass = []
+    lastOutput = embedding
+    attns = []
+    for i in range(layers):
+        conv0 = tf.keras.layers.Conv2D(dModelInter, 1)(lastOutput)
+        attnLayer = tf.keras.layers.MultiHeadAttention(h, dModelInter)
+        attns.append(attnLayer)
+        attn = attnLayer(lastOutput, lastOutput)
+        addNorm0 = AddNorm()(conv0, attn)
+        ff = []
+        for splitted in Splitter()(addNorm0):
+            ff.append(FF(dModelIntra, dFF, maxLen)(splitted))
+        permuter = FFPermuter()(ff)
+        reshape = tf.keras.layers.Reshape((-1, maxLen, dModelInter))(permuter)
+        addNorm1 = AddNorm()(reshape, addNorm0)
+        conv1 = tf.keras.layers.Conv2D(dModelInter, 1)(addNorm1)
+        addNorm2 = AddNorm()(lastOutput, conv1)
+        bypass.append(lastOutput)
+        lastOutput = addNorm2
+        j = 2
+        while (i + 1) % j == 0:
+            lastOutput = AddNorm()(bypass[i - j + 1], lastOutput)
+            j *= 2
+    attn = tf.keras.layers.MultiHeadAttention(h, dModelInter)(lastOutput, lastOutput)
+    reducer = Reducer()(attn)
+    gru = tf.keras.layers.GRU(dModelInter)(reducer)
+    dense = tf.keras.layers.Dense(depthOutput, activation="softmax")(gru)
+    model = tf.keras.Model(input, dense)
+    optimizer = tf.keras.optimizers.Adadelta(1.0)
+    model.compile(
+        optimizer,
+        loss="sparse_categorical_crossentropy",
+        metrics=["accuracy"],
+    )
+    return model, attns
 
 
 with open("./num2word.json") as f:
@@ -150,10 +189,12 @@ with open("./word2num.json") as f:
 with open("./wordTokens.json") as f:
     tokens = json.loads("".join(f.readlines()))
 depth = len(num2word)
-# large = useBERTLarge(depth, depth)
-# large.summary()
-# tf.keras.utils.plot_model(large, "large.png", show_shapes=True)
-
+# teacher, _ = useBERTTeacher(depth, depth)
+# teacher.summary()
+# tf.keras.utils.plot_model(teacher, "teacher.png", show_shapes=True)
+# student, _ = useBERTStudent(depth, depth)
+# student.summary()
+# tf.keras.utils.plot_model(student, "student.png", show_shapes=True)
 batchSize = 4
 stepsPerEpoch = 4
 
@@ -170,6 +211,3 @@ def loader():
                 endIndex += 1
             output.append(tokens[endIndex])
         yield np.array(input).reshape((batchSize, -1, 8)), np.array(output)
-
-
-data = loader()
