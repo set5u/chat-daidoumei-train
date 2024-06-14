@@ -50,12 +50,12 @@ class FF(tf.keras.Model):
     def __init__(self, dModel, dFF, maxLen, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.ff0 = tf.keras.layers.EinsumDense(
-            "abcd,de->abce",
-            (None, maxLen, dFF),
+            "abcd,de->abde",
+            (None, dModel, dFF),
             activation="relu",
         )
         self.ff1 = tf.keras.layers.EinsumDense(
-            "abce,de->abcd", (None, maxLen, dModel), activation="linear"
+            "abde,dc->abcd", (None, maxLen, dModel), activation="linear"
         )
         self.dModel = dModel
         self.maxLen = maxLen
@@ -98,7 +98,9 @@ def useBERTTeacher(
     layers=24,
 ):
     input = tf.keras.layers.Input((None, maxLen))
-    embedding = tf.keras.layers.Embedding(depthInput, dModelInter)(input)
+    embedding = tf.keras.layers.Embedding(depthInput, dModelInter, mask_zero=True)(
+        input
+    )
     bypass = []
     lastOutput = embedding
     attns = []
@@ -120,8 +122,10 @@ def useBERTTeacher(
             j *= 2
     attn = tf.keras.layers.MultiHeadAttention(h, dModelInter)(lastOutput, lastOutput)
     reducer = Reducer()(attn)
-    gru = tf.keras.layers.GRU(dModelInter)(reducer)
-    dense = tf.keras.layers.Dense(depthOutput, activation="softmax")(gru)
+    gruLayer = tf.keras.layers.GRU(dModelInter, return_state=True)
+    gru, _ = gruLayer(reducer)
+    denseLayer = tf.keras.layers.Dense(depthOutput, activation="softmax")
+    dense = denseLayer(gru)
     model = tf.keras.Model(input, dense)
     optimizer = tf.keras.optimizers.Adadelta(1.0)
     model.compile(
@@ -129,7 +133,7 @@ def useBERTTeacher(
         loss="sparse_categorical_crossentropy",
         metrics=["accuracy"],
     )
-    return model, attns
+    return model, attns, input, reducer, gruLayer, denseLayer
 
 
 def useBERTStudent(
@@ -144,7 +148,9 @@ def useBERTStudent(
     layers=24,
 ):
     input = tf.keras.layers.Input((None, maxLen))
-    embedding = tf.keras.layers.Embedding(depthInput, dModelInter)(input)
+    embedding = tf.keras.layers.Embedding(depthInput, dModelInter, mask_zero=True)(
+        input
+    )
     bypass = []
     lastOutput = embedding
     attns = []
@@ -170,8 +176,10 @@ def useBERTStudent(
             j *= 2
     attn = tf.keras.layers.MultiHeadAttention(h, dModelInter)(lastOutput, lastOutput)
     reducer = Reducer()(attn)
-    gru = tf.keras.layers.GRU(dModelInter)(reducer)
-    dense = tf.keras.layers.Dense(depthOutput, activation="softmax")(gru)
+    gruLayer = tf.keras.layers.GRU(dModelInter, return_state=True)
+    gru, _ = gruLayer(reducer)
+    denseLayer = tf.keras.layers.Dense(depthOutput, activation="softmax")
+    dense = denseLayer(gru)
     model = tf.keras.Model(input, dense)
     optimizer = tf.keras.optimizers.Adadelta(1.0)
     model.compile(
@@ -179,7 +187,7 @@ def useBERTStudent(
         loss="sparse_categorical_crossentropy",
         metrics=["accuracy"],
     )
-    return model, attns
+    return model, attns, input, reducer, gruLayer, denseLayer
 
 
 with open("./num2word.json") as f:
@@ -189,9 +197,12 @@ with open("./word2num.json") as f:
 with open("./wordTokens.json") as f:
     tokens = json.loads("".join(f.readlines()))
 depth = len(num2word)
-# teacher, _ = useBERTTeacher(depth, depth)
-# teacher.summary()
-# tf.keras.utils.plot_model(teacher, "teacher.png", show_shapes=True)
+teacher, _, input, reducer, gruLayer, denseLayer = useBERTTeacher(depth, depth)
+teacher.summary()
+tf.keras.utils.plot_model(teacher, "teacher.png", show_shapes=True)
+# with open("./weights/weight-2.jsonl") as f:
+#     weights = load("".join(f.readlines()))
+#     teacher.set_weights(weights)
 # student, _ = useBERTStudent(depth, depth)
 # student.summary()
 # tf.keras.utils.plot_model(student, "student.png", show_shapes=True)
@@ -211,3 +222,25 @@ def loader():
                 endIndex += 1
             output.append(tokens[endIndex])
         yield np.array(input).reshape((batchSize, -1, 8)), np.array(output)
+
+
+def predictTeacher():
+    output = []
+    predictModel = tf.keras.Model(input, reducer)
+    state = tf.constant([[0.0] * 128])
+    while True:
+        inArray = tf.constant(
+            [[[0] * (len(output) // 8 * 8 + 8 - len(output)) + output]]
+        )
+        result = predictModel(inArray)
+        result, newState = gruLayer(result, initial_state=state)
+        result = denseLayer(result)
+        result = tf.argmax(result, 1)[0].numpy()
+        output.append(result)
+        print(num2word[result], end="\n" if result == 1 else "", flush=True)
+        if len(output) == 8:
+            state = newState
+            output = []
+
+
+predictTeacher()
