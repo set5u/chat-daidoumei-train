@@ -102,26 +102,52 @@ def useBERTTeacher(
         input
     )
     bypass = []
+    bypassStandalone = []
     lastOutput = embedding
+    lastOutputStandalone = embedding
     attns = []
+    stateInputs = []
+    stateOutputs = []
     for i in range(layers):
-        conv0 = tf.keras.layers.Conv2D(dModelInter, 1)(lastOutput)
+        conv0Layer = tf.keras.layers.Conv2D(dModelInter, 1)
+        conv0 = conv0Layer(lastOutput)
+        conv0Standalone = conv0Layer(lastOutputStandalone)
         attnLayer = tf.keras.layers.MultiHeadAttention(h, dModelInter)
         attns.append(attnLayer)
         attn = attnLayer(lastOutput, lastOutput)
-        addNorm0 = AddNorm()(conv0, attn)
-        ff = FF(dModelInter, dFF, maxLen)(addNorm0)
-        addNorm1 = AddNorm()(ff, addNorm0)
-        conv1 = tf.keras.layers.Conv2D(dModelInter, 1)(addNorm1)
-        addNorm2 = AddNorm()(lastOutput, conv1)
+        attnStandalone = attnLayer(lastOutputStandalone, lastOutputStandalone)
+        addNorm0Layer = AddNorm()
+        addNorm0 = addNorm0Layer(conv0, attn)
+        addNorm0Standalone = addNorm0Layer(conv0Standalone, attnStandalone)
+        ffLayer = FF(dModelInter, dFF, maxLen)
+        ff = ffLayer(addNorm0)
+        ffStandalone = ffLayer(addNorm0Standalone)
+        addNorm1Layer = AddNorm()
+        addNorm1 = addNorm1Layer(ff, addNorm0)
+        addNorm1Standalone = addNorm1Layer(ffStandalone, addNorm0Standalone)
+        conv1Layer = tf.keras.layers.Conv2D(dModelInter, 1)
+        conv1 = conv1Layer(addNorm1)
+        conv1Standalone = conv1Layer(addNorm1Standalone)
+        addNorm2Layer = AddNorm()
+        addNorm2 = addNorm2Layer(lastOutput, conv1)
+        addNorm2Standalone = addNorm2Layer(lastOutputStandalone, conv1Standalone)
         bypass.append(lastOutput)
+        bypassStandalone.append(lastOutputStandalone)
         lastOutput = addNorm2
+        lastOutputStandalone = addNorm2Standalone
         j = 2
         while (i + 1) % j == 0:
-            lastOutput = AddNorm()(bypass[i - j + 1], lastOutput)
+            lastOutputLayer = AddNorm()
+            lastOutput = lastOutputLayer(bypass[i - j + 1], lastOutput)
+            lastOutputStandalone = lastOutputLayer(
+                bypassStandalone[i - j + 1], lastOutputStandalone
+            )
             j *= 2
-    attn = tf.keras.layers.MultiHeadAttention(h, dModelInter)(lastOutput, lastOutput)
+    attnLayer = tf.keras.layers.MultiHeadAttention(h, dModelInter)
+    attn = attnLayer(lastOutput, lastOutput)
+    attnStandalone = attnLayer(lastOutputStandalone, lastOutputStandalone)
     reducer = Reducer()(attn)
+    reducerStandalone = Reducer()(attnStandalone)
     gruLayer = tf.keras.layers.GRU(dModelInter, return_state=True)
     gru, _ = gruLayer(reducer)
     denseLayer = tf.keras.layers.Dense(depthOutput, activation="softmax")
