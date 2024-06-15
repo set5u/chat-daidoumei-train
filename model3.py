@@ -98,56 +98,29 @@ def useBERTTeacher(
     layers=24,
 ):
     input = tf.keras.layers.Input((None, maxLen))
-    embedding = tf.keras.layers.Embedding(depthInput, dModelInter, mask_zero=True)(
-        input
-    )
+    embedding = tf.keras.layers.Embedding(depthInput, dModelInter)(input)
     bypass = []
-    bypassStandalone = []
     lastOutput = embedding
-    lastOutputStandalone = embedding
     attns = []
-    stateInputs = []
-    stateOutputs = []
     for i in range(layers):
-        conv0Layer = tf.keras.layers.Conv2D(dModelInter, 1)
-        conv0 = conv0Layer(lastOutput)
-        conv0Standalone = conv0Layer(lastOutputStandalone)
+        conv0 = tf.keras.layers.Conv2D(dModelInter, 1)(lastOutput)
         attnLayer = tf.keras.layers.MultiHeadAttention(h, dModelInter)
         attns.append(attnLayer)
         attn = attnLayer(lastOutput, lastOutput)
-        attnStandalone = attnLayer(lastOutputStandalone, lastOutputStandalone)
-        addNorm0Layer = AddNorm()
-        addNorm0 = addNorm0Layer(conv0, attn)
-        addNorm0Standalone = addNorm0Layer(conv0Standalone, attnStandalone)
-        ffLayer = FF(dModelInter, dFF, maxLen)
-        ff = ffLayer(addNorm0)
-        ffStandalone = ffLayer(addNorm0Standalone)
-        addNorm1Layer = AddNorm()
-        addNorm1 = addNorm1Layer(ff, addNorm0)
-        addNorm1Standalone = addNorm1Layer(ffStandalone, addNorm0Standalone)
-        conv1Layer = tf.keras.layers.Conv2D(dModelInter, 1)
-        conv1 = conv1Layer(addNorm1)
-        conv1Standalone = conv1Layer(addNorm1Standalone)
-        addNorm2Layer = AddNorm()
-        addNorm2 = addNorm2Layer(lastOutput, conv1)
-        addNorm2Standalone = addNorm2Layer(lastOutputStandalone, conv1Standalone)
+        addNorm0 = AddNorm()(conv0, attn)
+        ff = FF(dModelInter, dFF, maxLen)(addNorm0)
+        addNorm1 = AddNorm()(ff, addNorm0)
+        conv1 = tf.keras.layers.Conv2D(dModelInter, 1)(addNorm1)
+        addNorm2 = AddNorm()(lastOutput, conv1)
         bypass.append(lastOutput)
-        bypassStandalone.append(lastOutputStandalone)
         lastOutput = addNorm2
-        lastOutputStandalone = addNorm2Standalone
         j = 2
         while (i + 1) % j == 0:
-            lastOutputLayer = AddNorm()
-            lastOutput = lastOutputLayer(bypass[i - j + 1], lastOutput)
-            lastOutputStandalone = lastOutputLayer(
-                bypassStandalone[i - j + 1], lastOutputStandalone
-            )
+            lastOutput = AddNorm()(bypass[i - j + 1], lastOutput)
             j *= 2
     attnLayer = tf.keras.layers.MultiHeadAttention(h, dModelInter)
     attn = attnLayer(lastOutput, lastOutput)
-    attnStandalone = attnLayer(lastOutputStandalone, lastOutputStandalone)
     reducer = Reducer()(attn)
-    reducerStandalone = Reducer()(attnStandalone)
     gruLayer = tf.keras.layers.GRU(dModelInter, return_state=True)
     gru, _ = gruLayer(reducer)
     denseLayer = tf.keras.layers.Dense(depthOutput, activation="softmax")
@@ -174,9 +147,7 @@ def useBERTStudent(
     layers=24,
 ):
     input = tf.keras.layers.Input((None, maxLen))
-    embedding = tf.keras.layers.Embedding(depthInput, dModelInter, mask_zero=True)(
-        input
-    )
+    embedding = tf.keras.layers.Embedding(depthInput, dModelInter)(input)
     bypass = []
     lastOutput = embedding
     attns = []
@@ -226,9 +197,9 @@ depth = len(num2word)
 teacher, _, input, reducer, gruLayer, denseLayer = useBERTTeacher(depth, depth)
 teacher.summary()
 tf.keras.utils.plot_model(teacher, "teacher.png", show_shapes=True)
-# with open("./weights/weight-2.jsonl") as f:
-#     weights = load("".join(f.readlines()))
-#     teacher.set_weights(weights)
+with open("./weights/weight-2.jsonl") as f:
+    weights = load("".join(f.readlines()))
+    teacher.set_weights(weights)
 # student, _ = useBERTStudent(depth, depth)
 # student.summary()
 # tf.keras.utils.plot_model(student, "student.png", show_shapes=True)
@@ -247,26 +218,25 @@ def loader():
             while tokens[endIndex] == 3:
                 endIndex += 1
             output.append(tokens[endIndex])
-        yield np.array(input).reshape((batchSize, -1, 8)), np.array(output)
+        yield np.array(input).reshape((batchSize * stepsPerEpoch, -1, 8)), np.array(
+            output
+        )
 
 
 def predictTeacher():
     output = []
     predictModel = tf.keras.Model(input, reducer)
-    state = tf.constant([[0.0] * 128])
     while True:
-        inArray = tf.constant(
-            [[[0] * (len(output) // 8 * 8 + 8 - len(output)) + output]]
+        inArray = tf.reshape(
+            tf.constant([[[0] * (len(output) // 8 * 8 + 8 - len(output)) + output]]),
+            (1, -1, 8),
         )
         result = predictModel(inArray)
-        result, newState = gruLayer(result, initial_state=state)
+        result, _ = gruLayer(result)
         result = denseLayer(result)
         result = tf.argmax(result, 1)[0].numpy()
         output.append(result)
         print(num2word[result], end="\n" if result == 1 else "", flush=True)
-        if len(output) == 8:
-            state = newState
-            output = []
 
 
 predictTeacher()
