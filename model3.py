@@ -224,7 +224,7 @@ def loader():
 
 
 def predictTeacher():
-    output = []
+    output = [1]
     predictModel = tf.keras.Model(input, reducer)
     while True:
         inArray = tf.reshape(
