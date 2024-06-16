@@ -484,11 +484,11 @@ def useExtendedTransformer(
     }
 
 
-with open("./num2word.json") as f:
+with open("./num2word.json", "r", -1, "utf-8") as f:
     num2word = json.loads("".join(f.readlines()))
-with open("./word2num.json") as f:
+with open("./word2num.json", "r", -1, "utf-8") as f:
     word2num = json.loads("".join(f.readlines()))
-with open("./wordTokens.json") as f:
+with open("./wordTokens.json", "r", -1, "utf-8") as f:
     tokens = json.loads("".join(f.readlines()))
 depth = len(num2word)
 maxLen = 8
@@ -504,7 +504,7 @@ models = useExtendedTransformer(
     16,
 )
 models["trainer"].summary()
-tf.keras.utils.plot_model(models["trainer"], "model.png", show_shapes=True)
+# tf.keras.utils.plot_model(models["trainer"], "model.png", show_shapes=True)
 
 stepsPerEpoch = 4
 
@@ -675,7 +675,7 @@ def predict():
 # toSave = save(models["trainer"])
 # with open("./weights/weight-" + str(2) + ".jsonl", "w") as f:
 #     f.write(toSave)
-models["trainer"].load_weights("./weights/weights")
+# models["trainer"].load_weights("./weights/weights")
 toTrain = False
 if toTrain:
     train()
