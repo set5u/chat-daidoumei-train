@@ -493,8 +493,8 @@ with open("./wordTokens.json") as f:
 depth = len(num2word)
 maxLen = 8
 models = useExtendedTransformer(
+    128,
     256,
-    512,
     0.1,
     8,
     maxLen,
@@ -558,7 +558,7 @@ def train():
 
 def predict():
     batchSize = 1
-    encoderInput = [1]
+    encoderInput = []
     constantPositionalEncoding = positionalEncoding(maxLen, 256)[
         tf.newaxis, tf.newaxis, :, :
     ]
