@@ -559,11 +559,11 @@ def train():
 def predict():
     batchSize = 1
     encoderInput = []
-    constantPositionalEncoding = positionalEncoding(maxLen, 256)[
+    constantPositionalEncoding = positionalEncoding(maxLen, 128)[
         tf.newaxis, tf.newaxis, :, :
     ]
-    encoderState = [tf.zeros((batchSize, maxLen * 256))] * 16
-    encoderRNNState = tf.zeros((batchSize, maxLen * 256))
+    encoderState = [tf.zeros((batchSize, maxLen * 128))] * 16
+    encoderRNNState = tf.zeros((batchSize, maxLen * 128))
     while True:
         while len(encoderInput) > 8:
             tempEncoderInput = tf.reshape(
@@ -583,9 +583,9 @@ def predict():
                 [tempEncoderInput] + encoderState
             )
             for i, encoderStateI in enumerate(encoderState):
-                encoderState[i] = tf.reshape(encoderStateI, (1, maxLen * 256))
+                encoderState[i] = tf.reshape(encoderStateI, (1, maxLen * 128))
             _, encoderRNNState = models["encoderRNNLayer"](
-                tf.reshape(encoderOutput, (batchSize, -1, maxLen * 256)),
+                tf.reshape(encoderOutput, (batchSize, -1, maxLen * 128)),
                 initial_state=encoderRNNState,
             )
             encoderRNNState = tf.reshape(encoderRNNState, (batchSize, -1))
@@ -600,22 +600,22 @@ def predict():
         encoderInput = encoderInput[8:]
         encoderOutput, *_ = models["encoder"]([tempEncoderInput] + encoderState)
         encoderRNNOutput, _ = models["encoderRNNLayer"](
-            tf.reshape(encoderOutput, (batchSize, -1, maxLen * 256)),
+            tf.reshape(encoderOutput, (batchSize, -1, maxLen * 128)),
             initial_state=encoderRNNState,
         )
-        encoderRNNOutput = tf.reshape(encoderRNNOutput, (batchSize, 1, maxLen, 256))
+        encoderRNNOutput = tf.reshape(encoderRNNOutput, (batchSize, 1, maxLen, 128))
         decoderInput = [1]
         decoderOutputTokens = []
-        bridgeRNNState = tf.zeros((batchSize, maxLen * 256))
-        decoderState = [tf.zeros((batchSize, maxLen * 256))] * 16
-        eos = False
+        bridgeRNNState = tf.zeros((batchSize, maxLen * 128))
+        decoderState = [tf.zeros((batchSize, maxLen * 128))] * 16
+        bos = False
         while True:
-            if eos:
+            if bos:
                 break
             bridgeRNNOutput, bridgeRNNState = models["bridgeRNNLayer"](
                 encoderRNNOutput, bridgeRNNState
             )
-            bridgeRNNState = tf.reshape(bridgeRNNState, (1, maxLen * 256))
+            bridgeRNNState = tf.reshape(bridgeRNNState, (1, maxLen * 128))
             for k in range(8):
                 tempDecoderInput = tf.reshape(
                     (
@@ -659,12 +659,12 @@ def predict():
                 decoderInput.append(result)
                 decoderOutputTokens.append(result)
                 print(num2word[result], end="", flush=True)
-                if result == 2:
-                    eos = True
+                if result == 1:
+                    bos = True
                     break
             decoderInput = decoderInput[8:]
             for i, decoderStateI in enumerate(newDecoderState):
-                decoderState[i] = tf.reshape(decoderStateI, (1, maxLen * 256))
+                decoderState[i] = tf.reshape(decoderStateI, (1, maxLen * 128))
         encoderInput.extend(decoderOutputTokens)
         print()
 
@@ -675,6 +675,7 @@ def predict():
 # toSave = save(models["trainer"])
 # with open("./weights/weight-" + str(2) + ".jsonl", "w") as f:
 #     f.write(toSave)
+models["trainer"].load_weights("./weights/weights")
 toTrain = False
 if toTrain:
     train()

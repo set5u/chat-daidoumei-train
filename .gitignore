@@ -131,4 +131,5 @@ dist
 
 *.bin
 weight*.jsonl
+weights
 graph
