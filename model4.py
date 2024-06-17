@@ -675,7 +675,7 @@ def predict():
 # toSave = save(models["trainer"])
 # with open("./weights/weight-" + str(2) + ".jsonl", "w") as f:
 #     f.write(toSave)
-# models["trainer"].load_weights("./weights/weights")
+models["trainer"].load_weights("./weights/weights")
 toTrain = False
 if toTrain:
     train()
