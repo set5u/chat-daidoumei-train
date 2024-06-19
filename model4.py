@@ -3,10 +3,13 @@ import tensorflow as tf
 import numpy as np
 import math
 import random
+import memory_saving_gradients
 
+# monkey patch tf.gradients to point to our custom version, with automatic checkpoint selection
+tf.__dict__["gradients"] = memory_saving_gradients.gradients_memory
 toTrain = True
 if toTrain:
-    batchSize = 4
+    batchSize = 1
     encoderRecurrentCount = 32
     decoderRecurrentCount = 4
 else:
@@ -500,7 +503,7 @@ depth = len(num2word)
 maxLen = 8
 # tf.keras.utils.plot_model(models["trainer"], "model.png", show_shapes=True)
 
-stepsPerEpoch = 16
+stepsPerEpoch = 1
 dModel = 128
 dFF = 256
 
