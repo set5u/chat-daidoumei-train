@@ -3,10 +3,7 @@ import tensorflow as tf
 import numpy as np
 import math
 import random
-import memory_saving_gradients as gc
-from tensorflow.python.ops import gradients as tf_gradients
 
-tf_gradients.gradients = gc.gradients_memory
 toTrain = True
 if toTrain:
     batchSize = 4
@@ -503,7 +500,9 @@ depth = len(num2word)
 maxLen = 8
 # tf.keras.utils.plot_model(models["trainer"], "model.png", show_shapes=True)
 
-stepsPerEpoch = 4
+stepsPerEpoch = 16
+dModel = 128
+dFF = 256
 
 
 def loader():
@@ -532,11 +531,11 @@ def loader():
 def predict():
     batchSize = 1
     encoderInput = []
-    constantPositionalEncoding = positionalEncoding(maxLen, 128)[
+    constantPositionalEncoding = positionalEncoding(maxLen, dModel)[
         tf.newaxis, tf.newaxis, :, :
     ]
-    encoderState = [tf.zeros((batchSize, maxLen * 128))] * 16
-    encoderRNNState = tf.zeros((batchSize, maxLen * 128))
+    encoderState = [tf.zeros((batchSize, maxLen * dModel))] * 16
+    encoderRNNState = tf.zeros((batchSize, maxLen * dModel))
     while True:
         while len(encoderInput) > 8:
             tempEncoderInput = tf.reshape(
@@ -556,9 +555,9 @@ def predict():
                 [tempEncoderInput] + encoderState
             )
             for i, encoderStateI in enumerate(encoderState):
-                encoderState[i] = tf.reshape(encoderStateI, (1, maxLen * 128))
+                encoderState[i] = tf.reshape(encoderStateI, (1, maxLen * dModel))
             _, encoderRNNState = models["encoderRNNLayer"](
-                tf.reshape(encoderOutput, (batchSize, -1, maxLen * 128)),
+                tf.reshape(encoderOutput, (batchSize, -1, maxLen * dModel)),
                 initial_state=encoderRNNState,
             )
             encoderRNNState = tf.reshape(encoderRNNState, (batchSize, -1))
@@ -573,14 +572,14 @@ def predict():
         encoderInput = encoderInput[8:]
         encoderOutput, *_ = models["encoder"]([tempEncoderInput] + encoderState)
         encoderRNNOutput, _ = models["encoderRNNLayer"](
-            tf.reshape(encoderOutput, (batchSize, -1, maxLen * 128)),
+            tf.reshape(encoderOutput, (batchSize, -1, maxLen * dModel)),
             initial_state=encoderRNNState,
         )
-        encoderRNNOutput = tf.reshape(encoderRNNOutput, (batchSize, 1, maxLen, 128))
+        encoderRNNOutput = tf.reshape(encoderRNNOutput, (batchSize, 1, maxLen, dModel))
         decoderInput = [1]
         decoderOutputTokens = []
-        bridgeRNNState = tf.zeros((batchSize, maxLen * 128))
-        decoderState = [tf.zeros((batchSize, maxLen * 128))] * 16
+        bridgeRNNState = tf.zeros((batchSize, maxLen * dModel))
+        decoderState = [tf.zeros((batchSize, maxLen * dModel))] * 16
         bos = False
         while True:
             if bos:
@@ -588,7 +587,7 @@ def predict():
             bridgeRNNOutput, bridgeRNNState = models["bridgeRNNLayer"](
                 encoderRNNOutput, bridgeRNNState
             )
-            bridgeRNNState = tf.reshape(bridgeRNNState, (1, maxLen * 128))
+            bridgeRNNState = tf.reshape(bridgeRNNState, (1, maxLen * dModel))
             for k in range(8):
                 tempDecoderInput = tf.reshape(
                     (
@@ -637,7 +636,7 @@ def predict():
                     break
             decoderInput = decoderInput[8:]
             for i, decoderStateI in enumerate(newDecoderState):
-                decoderState[i] = tf.reshape(decoderStateI, (1, maxLen * 128))
+                decoderState[i] = tf.reshape(decoderStateI, (1, maxLen * dModel))
         encoderInput.extend(decoderOutputTokens)
         print()
 
@@ -648,15 +647,15 @@ class Callback(tf.keras.callbacks.Callback):
 
 
 models = useExtendedTransformer(
-    128,
-    256,
+    dModel,
+    dFF,
     0.1,
     8,
     maxLen,
     depth,
     depth,
     depth,
-    16,
+    1,
 )
 models["trainer"].summary()
 
@@ -678,7 +677,7 @@ def train():
         epoch += 1
 
 
-models["trainer"].load_weights("./weights/weights")
+# models["trainer"].load_weights("./weights/weights")
 
 if toTrain:
     train()
