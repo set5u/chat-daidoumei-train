@@ -3,10 +3,19 @@ import tensorflow as tf
 import numpy as np
 import math
 import random
+import memory_saving_gradients as gc
+from tensorflow.python.ops import gradients as tf_gradients
 
-batchSize = 16
-encoderRecurrentCount = 1
-decoderRecurrentCount = 1
+tf_gradients.gradients = gc.gradients_memory
+toTrain = True
+if toTrain:
+    batchSize = 4
+    encoderRecurrentCount = 32
+    decoderRecurrentCount = 4
+else:
+    batchSize = 1
+    encoderRecurrentCount = 1
+    decoderRecurrentCount = 1
 
 
 def save(model):
@@ -492,18 +501,6 @@ with open("./wordTokens.json", "r", -1, "utf-8") as f:
     tokens = json.loads("".join(f.readlines()))
 depth = len(num2word)
 maxLen = 8
-models = useExtendedTransformer(
-    128,
-    256,
-    0.1,
-    8,
-    maxLen,
-    depth,
-    depth,
-    depth,
-    16,
-)
-models["trainer"].summary()
 # tf.keras.utils.plot_model(models["trainer"], "model.png", show_shapes=True)
 
 stepsPerEpoch = 4
@@ -682,7 +679,7 @@ def train():
 
 
 models["trainer"].load_weights("./weights/weights")
-toTrain = False
+
 if toTrain:
     train()
 else:
