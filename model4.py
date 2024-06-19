@@ -513,6 +513,7 @@ def loader():
     while True:
         input = []
         output = []
+        input2 = []
         for _ in range(batchSize * stepsPerEpoch):
             startIndex = math.floor(random.random() * (len(tokens) - (256 + 128)))
             input.append(tokens[startIndex : startIndex + 256])
@@ -523,37 +524,12 @@ def loader():
                     out.append(tokens[endIndex])
                 endIndex += 1
             output.append(out)
+            input2.append([0] + out[:-1])
 
-        yield np.array(input).reshape((batchSize * stepsPerEpoch, -1, 8)), np.array(
-            output
-        ).reshape((batchSize * stepsPerEpoch, -1, 8))
-
-
-class Callback(tf.keras.callbacks.Callback):
-    def on_epoch_end(self, epoch, _):
-        toSave = save(models["trainer"])
-        with open(
-            "./weights/weight-" + str(1) + ".jsonl",
-            "w",
-        ) as f:
-            f.write(toSave)
-
-
-def train():
-    trainDatas = loader()
-    epoch = 0
-    while True:
-        print("epoch " + str(epoch))
-        data = next(trainDatas)
-        models["trainer"].fit(
-            data[0],
-            data[1],
-            batch_size=batchSize,
-            steps_per_epoch=4,
-            epochs=1,
-            callbacks=[Callback()] if epoch % 50 == 1 else [],
-        )
-        epoch += 1
+        yield (
+            np.array(input).reshape((batchSize * stepsPerEpoch, -1, 8)),
+            np.array(input2).reshape((batchSize * stepsPerEpoch, -1, 8)),
+        ), np.array(output).reshape((batchSize * stepsPerEpoch, -1, 8))
 
 
 def predict():
@@ -669,12 +645,42 @@ def predict():
         print()
 
 
-# with open("./weights/weight-1.jsonl") as f:
-#     weights = load("".join(f.readlines()))
-# models["trainer"].set_weights(weights)
-# toSave = save(models["trainer"])
-# with open("./weights/weight-" + str(2) + ".jsonl", "w") as f:
-#     f.write(toSave)
+class Callback(tf.keras.callbacks.Callback):
+    def on_epoch_end(self, epoch, _):
+        models["trainer"].save_weights("./weights/weights")
+
+
+models = useExtendedTransformer(
+    128,
+    256,
+    0.1,
+    8,
+    maxLen,
+    depth,
+    depth,
+    depth,
+    16,
+)
+models["trainer"].summary()
+
+
+def train():
+    trainDatas = loader()
+    epoch = 0
+    while True:
+        print("epoch " + str(epoch))
+        data = next(trainDatas)
+        models["trainer"].fit(
+            data[0],
+            data[1],
+            batch_size=batchSize,
+            steps_per_epoch=4,
+            epochs=1,
+            callbacks=[Callback()] if epoch % 1000 == 999 else [],
+        )
+        epoch += 1
+
+
 models["trainer"].load_weights("./weights/weights")
 toTrain = False
 if toTrain:
