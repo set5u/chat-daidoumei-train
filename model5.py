@@ -224,72 +224,52 @@ class DecoderLayer(tf.keras.Model):
         return input_shape[0:2] + ((input_shape[2] - 1) // 2,)
 
 
-class MiddleLayer(tf.keras.Model):
-    def __init__(self, h, keyDim, maxLen, use_causal_mask=False, *args, **kwargs):
+class MiddleLayerCell(tf.keras.Model):
+    def __init__(self, h, keyDim, maxLen, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        dModel = h * keyDim
-        self.dModel = dModel
-        self.dModelLen = dModel * maxLen
+        self.h = h
+        self.keyDim = keyDim
         self.maxLen = maxLen
-        self.use_causal_mask = use_causal_mask
-        self.masks = (
-            tf.linalg.LinearOperatorLowerTriangular(
-                tf.ones((maxLen, maxLen))
-            ).to_dense()
-            if use_causal_mask
-            else tf.ones((maxLen, maxLen))
-        )
-        self.reshape0 = tf.keras.layers.Reshape(target_shape=(-1, maxLen * dModel))
-        self.rnn = tf.keras.layers.GRU(
-            dModel * maxLen,
-            return_sequences=True,
-            return_state=True,
-        )
-        self.reshape1 = tf.keras.layers.Reshape(target_shape=(-1, maxLen, dModel))
-        self.concat = tf.keras.layers.Concatenate(2)
+        self.state_size = h * keyDim * maxLen
+        self.addNorm = AddNorm()
 
-    def build(self, input_shape):
-        computed = input_shape[0:2] + (self.dModelLen,)
-        self.reshape0.build(input_shape)
-        self.rnn.build(computed)
-        self.reshape1.build(computed)
-        self.concat.build(
-            (
-                input_shape[0:2] + (None,) + input_shape[3:],
-                input_shape[0:2] + (1,) + input_shape[3:],
-            )
-        )
+    def build(self, _):
+        self.addNorm.build((None, self.maxLen, self.keyDim * self.h))
 
     def call(self, *inputs):
-        input = inputs[0]
-        initialState = inputs[1] if len(inputs) == 2 else None
-        if self.use_causal_mask:
-            ret = tf.constant(
-                0.0,
-                "float32",
-                (batchSize if input.shape[0] is None else input.shape[0],)
-                + input.shape[1:2]
-                + (0,)
-                + input.shape[3:],
-            )
-            for i in range(self.maxLen):
-                c, state = self.rnn(
-                    self.reshape0(
-                        input * self.masks[i][tf.newaxis, tf.newaxis, :, tf.newaxis]
-                    ),
-                    initial_state=initialState,
-                )
-                ret = self.concat((ret, self.reshape1(c)[:, :, i : i + 1, :]))
-        else:
-            ret, state = self.rnn(
-                self.reshape0(input),
-                initial_state=initialState,
-            )
-            ret = self.reshape1(ret)
-        return ret, state
+        ret = tf.reshape(
+            inputs[0],
+            (inputs[0].shape[0], self.maxLen, self.keyDim * self.h),
+        )
+        state = tf.reshape(
+            inputs[1][0],
+            (inputs[0].shape[0], self.maxLen, self.keyDim * self.h),
+        )
+        ret = self.addNorm(ret, state)
+        ret = tf.reshape(ret, (inputs[0].shape[0], -1))
+        return ret, ret
 
-    def compute_output_shape(self, input_shapes):
-        return input_shapes[0], input_shapes[0][:2] + (self.dModelLen,)
+
+class MiddleLayer(tf.keras.layers.RNN):
+    def __init__(self, h, keyDim, maxLen, *args, **kwargs):
+        super().__init__(
+            MiddleLayerCell(h, keyDim, maxLen), return_state=True, *args, **kwargs
+        )
+        self.maxLen = maxLen
+        self.keyDim = keyDim
+        self.h = h
+
+    def call(self, inputs, initial_state=None):
+        input = inputs[0] if isinstance(inputs, list) else inputs
+        state = (
+            initial_state
+            if initial_state is not None
+            else self.get_initial_state(input)
+        )
+        ret = tf.reshape(input, (batchSize, -1, self.maxLen * self.keyDim * self.h))
+        ret, state = super().call(ret, initial_state=state)
+        ret = tf.reshape(ret, (batchSize, -1, self.maxLen, self.keyDim * self.h))
+        return (ret, state) if self.return_state else ret
 
 
 def useExtendedTransformer(
@@ -323,8 +303,8 @@ def useExtendedTransformer(
     encoderMiddleLayerStateOutputs = []
     lastEncoderOutput = encoderPositionalEncoding
     lastEncoderStandaloneOutput = encoderPositionalEncoding
-    encoderBypass = []
-    encoderStandaloneBypass = []
+    # encoderBypass = []
+    # encoderStandaloneBypass = []
     for i in range(layers):
         concattedInputLayer = tf.keras.layers.Concatenate(3)
         concattedInput = concattedInputLayer(
@@ -351,18 +331,18 @@ def useExtendedTransformer(
             encoderMiddleLayer(encoderStandalone, encoderMiddleRNNInitialStateInput)
         )
         encoderMiddleLayerStateOutputs.append(encoderStandaloneMiddleRNNState)
-        encoderBypass.append(lastEncoderOutput)
-        encoderStandaloneBypass.append(lastEncoderStandaloneOutput)
+        # encoderBypass.append(lastEncoderOutput)
+        # encoderStandaloneBypass.append(lastEncoderStandaloneOutput)
         lastEncoderOutput = encoderMiddleRNN
         lastEncoderStandaloneOutput = encoderStandaloneMiddleRNN
-        j = 1
-        while (i + 1) % j == 0:
-            layer = AddNorm()
-            lastEncoderOutput = layer(encoderBypass[i - j + 1], lastEncoderOutput)
-            lastEncoderStandaloneOutput = layer(
-                encoderStandaloneBypass[i - j + 1], lastEncoderStandaloneOutput
-            )
-            j *= 2
+        # j = 1
+        # while (i + 1) % j == 0:
+        #     layer = AddNorm()
+        #     lastEncoderOutput = layer(encoderBypass[i - j + 1], lastEncoderOutput)
+        #     lastEncoderStandaloneOutput = layer(
+        #         encoderStandaloneBypass[i - j + 1], lastEncoderStandaloneOutput
+        #     )
+        #     j *= 2
     encoderReshape2 = tf.keras.layers.Reshape(
         target_shape=(encoderRecurrentCount, maxLen * dModel)
     )(lastEncoderOutput)
@@ -405,8 +385,8 @@ def useExtendedTransformer(
     decoderMiddleLayerStateOutputs = []
     lastDecoderOutput = decoderPositionalEncoding
     lastDecoderStandaloneOutput = decoderStandaloneInput
-    decoderBypass = []
-    decoderStandaloneBypass = []
+    # decoderBypass = []
+    # decoderStandaloneBypass = []
     for i in range(layers):
         concattedInputLayer = tf.keras.layers.Concatenate(3)
         concattedInput = concattedInputLayer(
@@ -428,7 +408,7 @@ def useExtendedTransformer(
         )
         decoder = decoderLayer(concattedInput)
         decoderStandalone = decoderLayer(concattedStandaloneInput)
-        decoderMiddleLayer = MiddleLayer(h, dModel // h, maxLen, use_causal_mask=True)
+        decoderMiddleLayer = MiddleLayer(h, dModel // h, maxLen)
         decoderMiddleRNN, _ = decoderMiddleLayer(decoder)
         decoderMiddleRNNInitialStateInput = tf.keras.layers.Input(
             shape=(maxLen * dModel,)
@@ -438,18 +418,18 @@ def useExtendedTransformer(
             decoderMiddleLayer(decoderStandalone, decoderMiddleRNNInitialStateInput)
         )
         decoderMiddleLayerStateOutputs.append(decoderStandaloneMiddleRNNState)
-        decoderBypass.append(lastDecoderOutput)
-        decoderStandaloneBypass.append(lastDecoderStandaloneOutput)
+        # decoderBypass.append(lastDecoderOutput)
+        # decoderStandaloneBypass.append(lastDecoderStandaloneOutput)
         lastDecoderOutput = decoderMiddleRNN
         lastDecoderStandaloneOutput = decoderStandaloneMiddleRNN
-        j = 1
-        while (i + 1) % j == 0:
-            layer = AddNorm()
-            lastDecoderOutput = layer(decoderBypass[i - j + 1], lastDecoderOutput)
-            lastDecoderStandaloneOutput = layer(
-                decoderStandaloneBypass[i - j + 1], lastDecoderStandaloneOutput
-            )
-            j *= 2
+        # j = 1
+        # while (i + 1) % j == 0:
+        #     layer = AddNorm()
+        #     lastDecoderOutput = layer(decoderBypass[i - j + 1], lastDecoderOutput)
+        #     lastDecoderStandaloneOutput = layer(
+        #         decoderStandaloneBypass[i - j + 1], lastDecoderStandaloneOutput
+        #     )
+        #     j *= 2
     decoderDenseLayer = tf.keras.layers.TimeDistributed(
         layer=tf.keras.layers.Dense(
             units=depthTarget,
@@ -502,9 +482,9 @@ maxLen = 8
 # tf.keras.utils.plot_model(models["trainer"], "model.png", show_shapes=True)
 
 stepsPerEpoch = 256
-dModel = 16
-dFF = 32
-
+dModel = 256
+dFF = 128
+layers = 16
 
 def loader():
     while True:
@@ -530,12 +510,11 @@ def loader():
 
 
 def predict():
-    batchSize = 1
     encoderInput = []
     constantPositionalEncoding = positionalEncoding(maxLen, dModel)[
         tf.newaxis, tf.newaxis, :, :
     ]
-    encoderState = [tf.zeros((batchSize, maxLen * dModel))] * 8
+    encoderState = [tf.zeros((batchSize, maxLen * dModel))] * layers
     encoderRNNState = tf.zeros((batchSize, maxLen * dModel))
     while True:
         while len(encoderInput) > 8:
@@ -580,7 +559,7 @@ def predict():
         decoderInput = [1]
         decoderOutputTokens = []
         bridgeRNNState = tf.zeros((batchSize, maxLen * dModel))
-        decoderState = [tf.zeros((batchSize, maxLen * dModel))] * 8
+        decoderState = [tf.zeros((batchSize, maxLen * dModel))] * layers
         bos = False
         while True:
             if bos:
@@ -656,7 +635,7 @@ models = useExtendedTransformer(
     depth,
     depth,
     depth,
-    8,
+    layers,
 )
 models["trainer"].summary()
 
@@ -678,7 +657,7 @@ def train():
         epoch += 1
 
 
-models["trainer"].load_weights("./weights/weights")
+# models["trainer"].load_weights("./weights/weights")
 
 if toTrain:
     train()
