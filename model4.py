@@ -3,15 +3,12 @@ import tensorflow as tf
 import numpy as np
 import math
 import random
-import memory_saving_gradients
 
-# monkey patch tf.gradients to point to our custom version, with automatic checkpoint selection
-tf.__dict__["gradients"] = memory_saving_gradients.gradients_memory
-toTrain = True
+toTrain = False
 if toTrain:
     batchSize = 1
-    encoderRecurrentCount = 32
-    decoderRecurrentCount = 4
+    encoderRecurrentCount = 8
+    decoderRecurrentCount = 2
 else:
     batchSize = 1
     encoderRecurrentCount = 1
@@ -503,9 +500,9 @@ depth = len(num2word)
 maxLen = 8
 # tf.keras.utils.plot_model(models["trainer"], "model.png", show_shapes=True)
 
-stepsPerEpoch = 1
-dModel = 128
-dFF = 256
+stepsPerEpoch = 256
+dModel = 16
+dFF = 32
 
 
 def loader():
@@ -514,11 +511,11 @@ def loader():
         output = []
         input2 = []
         for _ in range(batchSize * stepsPerEpoch):
-            startIndex = math.floor(random.random() * (len(tokens) - (256 + 128)))
-            input.append(tokens[startIndex : startIndex + 256])
-            endIndex = startIndex + 256
+            startIndex = math.floor(random.random() * (len(tokens) - (64 + 16)))
+            input.append(tokens[startIndex : startIndex + 64])
+            endIndex = startIndex + 64
             out = []
-            while len(out) != 32:
+            while len(out) != 16:
                 if tokens[endIndex] != 3:
                     out.append(tokens[endIndex])
                 endIndex += 1
@@ -537,7 +534,7 @@ def predict():
     constantPositionalEncoding = positionalEncoding(maxLen, dModel)[
         tf.newaxis, tf.newaxis, :, :
     ]
-    encoderState = [tf.zeros((batchSize, maxLen * dModel))] * 16
+    encoderState = [tf.zeros((batchSize, maxLen * dModel))] * 8
     encoderRNNState = tf.zeros((batchSize, maxLen * dModel))
     while True:
         while len(encoderInput) > 8:
@@ -582,7 +579,7 @@ def predict():
         decoderInput = [1]
         decoderOutputTokens = []
         bridgeRNNState = tf.zeros((batchSize, maxLen * dModel))
-        decoderState = [tf.zeros((batchSize, maxLen * dModel))] * 16
+        decoderState = [tf.zeros((batchSize, maxLen * dModel))] * 8
         bos = False
         while True:
             if bos:
@@ -653,12 +650,12 @@ models = useExtendedTransformer(
     dModel,
     dFF,
     0.1,
-    8,
+    4,
     maxLen,
     depth,
     depth,
     depth,
-    1,
+    8,
 )
 models["trainer"].summary()
 
@@ -673,14 +670,14 @@ def train():
             data[0],
             data[1],
             batch_size=batchSize,
-            steps_per_epoch=4,
+            steps_per_epoch=stepsPerEpoch,
             epochs=1,
-            callbacks=[Callback()] if epoch % 1000 == 999 else [],
+            callbacks=[Callback()] if epoch % 10 == 9 else [],
         )
         epoch += 1
 
 
-# models["trainer"].load_weights("./weights/weights")
+models["trainer"].load_weights("./weights/weights")
 
 if toTrain:
     train()
