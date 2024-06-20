@@ -4,6 +4,7 @@ import numpy as np
 import math
 import random
 
+
 toTrain = False
 if toTrain:
     batchSize = 1
@@ -461,12 +462,12 @@ def useExtendedTransformer(
         inputs=(encoderInput, decoderInput),
         outputs=decoderDense,
     )
-    optimizer = tf.keras.optimizers.Adadelta(1.0)
-    trainer.compile(
-        optimizer,
-        loss="sparse_categorical_crossentropy",
-        metrics=["accuracy"],
-    )
+    # optimizer = tf.keras.optimizers.Adadelta(1.0)
+    # trainer.compile(
+    #     optimizer,
+    #     loss="sparse_categorical_crossentropy",
+    #     metrics=["accuracy"],
+    # )
     encoder = tf.keras.Model(
         inputs=[encoderInput] + encoderMiddleLayerStateInputs,
         outputs=[lastEncoderOutput] + encoderMiddleLayerStateOutputs,
