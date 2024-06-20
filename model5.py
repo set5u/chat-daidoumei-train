@@ -4,7 +4,8 @@ import numpy as np
 import math
 import random
 
-
+policy = tf.keras.mixed_precision.Policy("mixed_float16")
+tf.keras.mixed_precision.set_global_policy(policy)
 toTrain = False
 if toTrain:
     batchSize = 1
@@ -60,7 +61,7 @@ def positionalEncoding(length, depth):
                 if j % 2
                 else math.cos(i / 10000 ** (j / depth))
             )
-    return tf.constant(ret)
+    return tf.constant(ret, "float16")
 
 
 class RNNTiler(tf.keras.Model):
@@ -91,12 +92,15 @@ class AddNorm(tf.keras.Model):
 class FF(tf.keras.Model):
     def __init__(self, dModel, dFF, maxLen, use_causal_mask=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.mask = (
-            tf.linalg.LinearOperatorLowerTriangular(
-                tf.ones((maxLen, maxLen))
-            ).to_dense()
-            if use_causal_mask
-            else tf.ones((maxLen, maxLen))
+        self.mask = tf.cast(
+            (
+                tf.linalg.LinearOperatorLowerTriangular(
+                    tf.ones((maxLen, maxLen))
+                ).to_dense()
+                if use_causal_mask
+                else tf.ones((maxLen, maxLen))
+            ),
+            "float16",
         )
         self.ff0 = tf.keras.layers.EinsumDense(
             "acfd,de->ace", (maxLen, dFF), activation="relu"
@@ -324,7 +328,7 @@ def useExtendedTransformer(
         encoderMiddleLayer = MiddleLayer(h, dModel // h, maxLen)
         encoderMiddleRNN, _ = encoderMiddleLayer(encoder)
         encoderMiddleRNNInitialStateInput = tf.keras.layers.Input(
-            shape=(maxLen * dModel,)
+            shape=(maxLen * dModel,), dtype="float16"
         )
         encoderMiddleLayerStateInputs.append(encoderMiddleRNNInitialStateInput)
         encoderStandaloneMiddleRNN, encoderStandaloneMiddleRNNState = (
@@ -411,7 +415,7 @@ def useExtendedTransformer(
         decoderMiddleLayer = MiddleLayer(h, dModel // h, maxLen)
         decoderMiddleRNN, _ = decoderMiddleLayer(decoder)
         decoderMiddleRNNInitialStateInput = tf.keras.layers.Input(
-            shape=(maxLen * dModel,)
+            shape=(maxLen * dModel,), dtype="float16"
         )
         decoderMiddleLayerStateInputs.append(decoderMiddleRNNInitialStateInput)
         decoderStandaloneMiddleRNN, decoderStandaloneMiddleRNNState = (
@@ -479,12 +483,12 @@ with open("./wordTokens.json", "r", -1, "utf-8") as f:
     tokens = json.loads("".join(f.readlines()))
 depth = len(num2word)
 maxLen = 8
-# tf.keras.utils.plot_model(models["trainer"], "model.png", show_shapes=True)
 
 stepsPerEpoch = 256
 dModel = 256
 dFF = 128
 layers = 16
+
 
 def loader():
     while True:
@@ -514,8 +518,10 @@ def predict():
     constantPositionalEncoding = positionalEncoding(maxLen, dModel)[
         tf.newaxis, tf.newaxis, :, :
     ]
-    encoderState = [tf.zeros((batchSize, maxLen * dModel))] * layers
-    encoderRNNState = tf.zeros((batchSize, maxLen * dModel))
+    encoderState = [
+        tf.zeros((batchSize, maxLen * dModel), "float16") for _ in range(layers)
+    ]
+    encoderRNNState = tf.zeros((batchSize, maxLen * dModel), "float16")
     while True:
         while len(encoderInput) > 8:
             tempEncoderInput = tf.reshape(
@@ -558,8 +564,10 @@ def predict():
         encoderRNNOutput = tf.reshape(encoderRNNOutput, (batchSize, 1, maxLen, dModel))
         decoderInput = [1]
         decoderOutputTokens = []
-        bridgeRNNState = tf.zeros((batchSize, maxLen * dModel))
-        decoderState = [tf.zeros((batchSize, maxLen * dModel))] * layers
+        bridgeRNNState = tf.zeros((batchSize, maxLen * dModel), "float16")
+        decoderState = [
+            tf.zeros((batchSize, maxLen * dModel), "float16") for _ in range(layers)
+        ]
         bos = False
         while True:
             if bos:
@@ -638,6 +646,7 @@ models = useExtendedTransformer(
     layers,
 )
 models["trainer"].summary()
+tf.keras.utils.plot_model(models["trainer"], "model.png", show_shapes=True)
 
 
 def train():
