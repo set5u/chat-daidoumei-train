@@ -731,23 +731,30 @@ def train_step(optimizer, trainDatas=loader()):
     dx = xs[1]
     ys = data[1]
     totalGrads = [tf.zeros_like(var) for var in models["trainer"].trainable_variables]
-    # train decoderEndChunk
-    print("train decoderEndChunk")
     e = ex
-    e, eMask = models["encoderStartChunk"](e)
+    encoderStartChunk, eMask = models["encoderStartChunk"](e)
+    e = encoderStartChunk
+    encoderChunks = []
     for i, el in enumerate(models["encoderChunks"]):
+        encoderChunks.append(e)
         if i % 2 == 0:
             e = el((e, eMask))
         else:
             e = el(e)
-    e = models["encoderEndChunk"](e)
-    e = models["decoderTileChunk"](e[:, tf.newaxis], dx)
-    d, dMask = models["decoderStartChunk"](dx)
+    encoderChunksOut = e
+    encoderEndChunk = models["encoderEndChunk"](e)
+    decoderTileChunk = models["decoderTileChunk"](encoderEndChunk[:, tf.newaxis], dx)
+    decoderStartChunk, dMask = models["decoderStartChunk"](dx)
+    d = decoderStartChunk
+    decoderChunks = []
     for i, el in enumerate(models["decoderChunks"]):
+        decoderChunks.append(d)
         if i % 2 == 0:
-            d = el((d, e, dMask))
+            d = el((d, decoderTileChunk, dMask))
         else:
             d = el(d)
+    # train decoderEndChunk
+    # print("train decoderEndChunk")
     f = d
     with tf.GradientTape(persistent=True) as tape:
         tape.watch(f)
@@ -758,86 +765,56 @@ def train_step(optimizer, trainDatas=loader()):
     loss = d
     totalGrads = [tg + g for tg, g in zip(totalGrads, grads)]
     # train decoderChunks
-    eGrads = tf.zeros_like(nextGrads)
-    for i in range(layers * 2):
-        ii = layers * 2 - i - 1
-        print("train decoderChunks: " + str(ii))
-        d, dMask = models["decoderStartChunk"](dx)
-        for j, el in enumerate(models["decoderChunks"][:ii]):
-            if j % 2 == 0:
-                d = el((d, e, dMask))
-            else:
-                d = el(d)
-        f = d
+    eGrads = 0
+    for i, decoderChunk in enumerate(decoderChunks):
+        # print("train decoderChunk " + str(i))
+        f = decoderChunk
         with tf.GradientTape(persistent=True) as tape:
             tape.watch(f)
-            if ii % 2 == 0:
-                tape.watch(e)
-                d = models["decoderChunks"][ii]((d, e, dMask))
-            else:
-                d = models["decoderChunks"][ii](d)
+            tape.watch(decoderTileChunk)
+            d = models["decoderChunks"][layers * 2 - i - 1](
+                (f, decoderTileChunk, dMask) if i % 2 == 1 else f
+            )
         grads = tape.gradient(
             d, models["trainer"].trainable_variables, nextGrads, "zero"
         )
-        if ii % 2 == 0:
-            eGrads += tape.gradient(d, e, nextGrads)
+        if i % 2 == 1:
+            eGrads += tape.gradient(d, decoderTileChunk, nextGrads)
         nextGrads = tape.gradient(d, f, nextGrads)
         totalGrads = [tg + g for tg, g in zip(totalGrads, grads)]
-    eGrads = tf.reduce_mean(eGrads, 1)
-    eGrads /= layers
     # train decoderStartChunk
-    print("train decoderStartChunk")
-    f = dx
-    with tf.GradientTape(persistent=True) as tape:
-        tape.watch(d)
+    # print("train decoderStartChunk")
+    with tf.GradientTape() as tape:
         d, dMask = models["decoderStartChunk"](dx)
     grads = tape.gradient(d, models["trainer"].trainable_variables, nextGrads, "zero")
     totalGrads = [tg + g for tg, g in zip(totalGrads, grads)]
     # train encoderEndChunk
-    print("train encoderEndChunk")
-    e = ex
-    e, eMask = models["encoderStartChunk"](e)
-    for i, el in enumerate(models["encoderChunks"]):
-        if i % 2 == 0:
-            e = el((e, eMask))
-        else:
-            e = el(e)
-    f = e
+    # print("train encoderEndChunk")
+    eGrads = tf.reduce_mean(eGrads, 1)
+    eGrads /= layers
     with tf.GradientTape(persistent=True) as tape:
-        tape.watch(f)
-        e = models["encoderEndChunk"](e)
+        tape.watch(encoderChunksOut)
+        e = models["encoderEndChunk"](encoderChunksOut)
     grads = tape.gradient(e, models["trainer"].trainable_variables, eGrads, "zero")
-    nextGrads = tape.gradient(e, f, eGrads)
+    nextGrads = tape.gradient(e, encoderEndChunk, eGrads)
     totalGrads = [tg + g for tg, g in zip(totalGrads, grads)]
-    # train encoderChunks
-    e = ex
-    e, eMask = models["encoderStartChunk"](e)
-    for i in range(layers * 2):
-        ii = layers * 2 - i - 1
-        print("train encoderChunks: " + str(ii))
-        e, eMask = models["encoderStartChunk"](ex)
-        for j, el in enumerate(models["encoderChunks"][:ii]):
-            if j % 2 == 0:
-                e = el((e, eMask))
-            else:
-                e = el(e)
-        f = e
+    for i, encoderChunk in enumerate(encoderChunks):
+        # print("train encoderChunk " + str(i))
+        f = encoderChunk
         with tf.GradientTape(persistent=True) as tape:
             tape.watch(f)
-            if ii % 2 == 0:
-                e = models["encoderChunks"][ii]((e, eMask))
-            else:
-                e = models["encoderChunks"][ii](e)
+            e = models["encoderChunks"][layers * 2 - i - 1](
+                (f, eMask) if i % 2 == 1 else f
+            )
         grads = tape.gradient(
             e, models["trainer"].trainable_variables, nextGrads, "zero"
         )
         nextGrads = tape.gradient(e, f, nextGrads)
         totalGrads = [tg + g for tg, g in zip(totalGrads, grads)]
-    # train decoderEndChunk
-    print("train encoderStartChunk")
-    e = ex
+    # train encoderStartChunk
+    # print("train encoderStartChunk")
     with tf.GradientTape() as tape:
-        e, eMask = models["encoderStartChunk"](e)
+        e, eMask = models["encoderStartChunk"](ex)
     grads = tape.gradient(e, models["trainer"].trainable_variables, nextGrads, "zero")
     totalGrads = [tg + g for tg, g in zip(totalGrads, grads)]
     print("loss: ", tf.reduce_mean(loss).numpy())
@@ -847,7 +824,7 @@ def train_step(optimizer, trainDatas=loader()):
 # models["trainer"].load_weights("./weights/weights")
 
 if toTrain:
-    optimizer = tf.keras.optimizers.Adadelta()
+    optimizer = tf.keras.optimizers.Adadelta(0.1)
     step = 0
     while True:
         print("step: " + str(step))
