@@ -817,8 +817,8 @@ def train_step(optimizer, trainDatas=loader()):
         e, eMask = models["encoderStartChunk"](ex)
     grads = tape.gradient(e, models["trainer"].trainable_variables, nextGrads, "zero")
     totalGrads = [tg + g for tg, g in zip(totalGrads, grads)]
-    print("loss: ", tf.reduce_mean(loss).numpy())
     optimizer.apply_gradients(zip(totalGrads, models["trainer"].trainable_variables))
+    return tf.reduce_mean(loss).numpy()
 
 
 # models["trainer"].load_weights("./weights/weights")
@@ -827,8 +827,7 @@ if toTrain:
     optimizer = tf.keras.optimizers.Adadelta(0.1)
     step = 0
     while True:
-        print("step: " + str(step))
-        train_step(optimizer)
+        print("step: ", step, ",loss: ", train_step(optimizer))
         step += 1
         if step % 10 == 0:
             models["trainer"].save_weights("./weights/weights")
