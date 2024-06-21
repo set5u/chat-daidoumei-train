@@ -565,7 +565,7 @@ depth = len(num2word)
 maxLen = 8
 
 dModel = 256
-dFF = 128
+dFF = 512
 layers = 16
 
 
@@ -824,7 +824,7 @@ def train():
         for i in range(layers * 2):
             ii = layers * 2 - i - 1
             print("train encoderChunks: " + str(ii))
-            e, eMask = models["encoderStartChunk"](dx)
+            e, eMask = models["encoderStartChunk"](ex)
             for j, el in enumerate(models["encoderChunks"][:ii]):
                 if j % 2 == 0:
                     e = el((e, eMask))
