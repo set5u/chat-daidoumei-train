@@ -790,8 +790,7 @@ def train_step(optimizer, trainDatas=loader()):
     totalGrads = [tg + g for tg, g in zip(totalGrads, grads)]
     # train encoderEndChunk
     # print("train encoderEndChunk")
-    eGrads = tf.reduce_mean(eGrads, 1)
-    eGrads /= layers
+    eGrads = tf.reduce_sum(eGrads, 1)
     with tf.GradientTape(persistent=True) as tape:
         tape.watch(encoderChunksOut)
         e = models["encoderEndChunk"](encoderChunksOut)
@@ -824,7 +823,7 @@ def train_step(optimizer, trainDatas=loader()):
 # models["trainer"].load_weights("./weights/weights")
 
 if toTrain:
-    optimizer = tf.keras.optimizers.Adadelta(0.1)
+    optimizer = tf.keras.optimizers.Adadelta(1.0)
     step = 0
     while True:
         print("step: ", step, ",loss: ", train_step(optimizer))
