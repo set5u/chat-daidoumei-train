@@ -757,7 +757,7 @@ def train():
                 d = el(d)
         f = d
         with tf.GradientTape(persistent=True) as tape:
-            tape.watch(d)
+            tape.watch(f)
             d = models["decoderEndChunk"](d)
             d = tf.keras.losses.sparse_categorical_crossentropy(ys, d)
         grads = tape.gradient(d, models["trainer"].trainable_variables, None, "zero")
@@ -790,6 +790,8 @@ def train():
                 eGrads += tape.gradient(d, e, nextGrads)
             nextGrads = tape.gradient(d, f, nextGrads)
             totalGrads = [tg + g for tg, g in zip(totalGrads, grads)]
+        eGrads = tf.reduce_mean(eGrads, 1)
+        eGrads /= layers
         # train decoderStartChunk
         print("train decoderStartChunk")
         f = dx
@@ -798,6 +800,55 @@ def train():
             d, dMask = models["decoderStartChunk"](dx)
         grads = tape.gradient(
             d, models["trainer"].trainable_variables, nextGrads, "zero"
+        )
+        totalGrads = [tg + g for tg, g in zip(totalGrads, grads)]
+        # train encoderEndChunk
+        print("train encoderEndChunk")
+        e = ex
+        e, eMask = models["encoderStartChunk"](e)
+        for i, el in enumerate(models["encoderChunks"]):
+            if i % 2 == 0:
+                e = el((e, eMask))
+            else:
+                e = el(e)
+        f = e
+        with tf.GradientTape(persistent=True) as tape:
+            tape.watch(f)
+            e = models["encoderEndChunk"](e)
+        grads = tape.gradient(e, models["trainer"].trainable_variables, eGrads, "zero")
+        nextGrads = tape.gradient(e, f, eGrads)
+        totalGrads = [tg + g for tg, g in zip(totalGrads, grads)]
+        # train encoderChunks
+        e = ex
+        e, eMask = models["encoderStartChunk"](e)
+        for i in range(layers * 2):
+            ii = layers * 2 - i - 1
+            print("train encoderChunks: " + str(ii))
+            e, eMask = models["encoderStartChunk"](dx)
+            for j, el in enumerate(models["encoderChunks"][:ii]):
+                if j % 2 == 0:
+                    e = el((e, eMask))
+                else:
+                    e = el(e)
+            f = e
+            with tf.GradientTape(persistent=True) as tape:
+                tape.watch(f)
+                if ii % 2 == 0:
+                    e = models["encoderChunks"][ii]((e, eMask))
+                else:
+                    e = models["encoderChunks"][ii](e)
+            grads = tape.gradient(
+                e, models["trainer"].trainable_variables, nextGrads, "zero"
+            )
+            nextGrads = tape.gradient(e, f, nextGrads)
+            totalGrads = [tg + g for tg, g in zip(totalGrads, grads)]
+        # train decoderEndChunk
+        print("train encoderStartChunk")
+        e = ex
+        with tf.GradientTape() as tape:
+            e, eMask = models["encoderStartChunk"](e)
+        grads = tape.gradient(
+            e, models["trainer"].trainable_variables, nextGrads, "zero"
         )
         totalGrads = [tg + g for tg, g in zip(totalGrads, grads)]
         print("loss: ", tf.reduce_mean(loss).numpy())
