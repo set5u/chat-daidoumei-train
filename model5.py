@@ -303,13 +303,23 @@ def useExtendedTransformer(
         ),
     )(encoderInput)
     encoderPositionalEncoding = encoderEmbedding + positionalEncoding(maxLen, dModel)
+    encoderStartChunk = tf.keras.Model(
+        encoderInput, [encoderPositionalEncoding, encoderAttentionMask]
+    )
     encoderMiddleLayerStateInputs = []
     encoderMiddleLayerStateOutputs = []
     lastEncoderOutput = encoderPositionalEncoding
     lastEncoderStandaloneOutput = encoderPositionalEncoding
+    encoderChunks = []
     # encoderBypass = []
     # encoderStandaloneBypass = []
     for i in range(layers):
+        encoderChunkInput0 = tf.keras.layers.Input(
+            shape=(encoderRecurrentCount, maxLen, dModel), dtype="float16"
+        )
+        encoderChunkInput1 = tf.keras.layers.Input(
+            shape=(encoderRecurrentCount, maxLen), dtype="float16"
+        )
         concattedInputLayer = tf.keras.layers.Concatenate(3)
         concattedInput = concattedInputLayer(
             [
@@ -320,11 +330,24 @@ def useExtendedTransformer(
         concattedStandaloneInput = concattedInputLayer(
             [lastEncoderStandaloneOutput, encoderAttentionMask[:, :, :, tf.newaxis]]
         )
+        concattedChunkInput = concattedInputLayer(
+            [
+                encoderChunkInput0,
+                encoderChunkInput1[:, :, :, tf.newaxis],
+            ]
+        )
         encoderLayer = tf.keras.layers.TimeDistributed(
             EncoderLayer(dModel, dFF, pDropout, h, maxLen, depthEncoder)
         )
         encoder = encoderLayer(concattedInput)
         encoderStandalone = encoderLayer(concattedStandaloneInput)
+        encoderChunk = encoderLayer(concattedChunkInput)
+        encoderChunks.append(
+            tf.keras.Model([encoderChunkInput0, encoderChunkInput1], encoderChunk)
+        )
+        encoderChunkInput2 = tf.keras.layers.Input(
+            shape=(encoderRecurrentCount, maxLen, dModel), dtype="float16"
+        )
         encoderMiddleLayer = MiddleLayer(h, dModel // h, maxLen)
         encoderMiddleRNN, _ = encoderMiddleLayer(encoder)
         encoderMiddleRNNInitialStateInput = tf.keras.layers.Input(
@@ -335,6 +358,8 @@ def useExtendedTransformer(
             encoderMiddleLayer(encoderStandalone, encoderMiddleRNNInitialStateInput)
         )
         encoderMiddleLayerStateOutputs.append(encoderStandaloneMiddleRNNState)
+        encoderChunkMiddleRNN = encoderMiddleLayer(encoderChunkInput2)
+        encoderChunks.append(tf.keras.Model(encoderChunkInput2, encoderChunkMiddleRNN))
         # encoderBypass.append(lastEncoderOutput)
         # encoderStandaloneBypass.append(lastEncoderStandaloneOutput)
         lastEncoderOutput = encoderMiddleRNN
@@ -347,21 +372,30 @@ def useExtendedTransformer(
         #         encoderStandaloneBypass[i - j + 1], lastEncoderStandaloneOutput
         #     )
         #     j *= 2
-    encoderReshape2 = tf.keras.layers.Reshape(
+    encoderEndChunkInput = tf.keras.layers.Input(
+        shape=(encoderRecurrentCount, maxLen, dModel), dtype="float16"
+    )
+    encoderReshapeLayer2 = tf.keras.layers.Reshape(
         target_shape=(encoderRecurrentCount, maxLen * dModel)
-    )(lastEncoderOutput)
+    )
+    encoderReshape2 = encoderReshapeLayer2(lastEncoderOutput)
+    encoderChunkReshape2 = encoderReshapeLayer2(encoderEndChunkInput)
     encoderRNNLayer = tf.keras.layers.GRU(
         maxLen * dModel,
         return_state=True,
     )
     encoderRNN, _ = encoderRNNLayer(encoderReshape2)
-    encoderReshape3 = tf.keras.layers.Reshape(target_shape=(maxLen, dModel))(encoderRNN)
+    encoderChunkRNN, _ = encoderRNNLayer(encoderChunkReshape2)
+    encoderReshapeLayer3 = tf.keras.layers.Reshape(target_shape=(maxLen, dModel))
+    encoderReshape3 = encoderReshapeLayer3(encoderRNN)
+    encoderChunkReshape3 = encoderReshapeLayer3(encoderChunkRNN)
+    encoderEndChunk = tf.keras.Model(encoderEndChunkInput, encoderChunkReshape3)
     decoderInput = tf.keras.Input(shape=(decoderRecurrentCount, maxLen))
     decoderStandaloneRNNInput = tf.keras.Input(
-        shape=(decoderRecurrentCount, maxLen, dModel)
+        shape=(decoderRecurrentCount, maxLen, dModel), dtype="float16"
     )
     decoderStandaloneInput = tf.keras.Input(
-        shape=(decoderRecurrentCount, maxLen, dModel),
+        shape=(decoderRecurrentCount, maxLen, dModel), dtype="float16"
     )
     decoderStandaloneMaskInput = tf.keras.Input(
         shape=(decoderRecurrentCount, maxLen),
@@ -383,20 +417,29 @@ def useExtendedTransformer(
     decoderEmbedding = decoderEmbeddingLayer(decoderInput)
     decoderPositionalEncoding = decoderEmbedding + positionalEncoding(maxLen, dModel)
     tiler = RNNTiler()(encoderReshape3[:, tf.newaxis], decoderInput)
-    bridgeRNNLayer = MiddleLayer(h, dModel // h, maxLen)
-    bridgeRNN, _ = bridgeRNNLayer(tiler)
+    decoderStartChunk = RNNTiler()
     decoderMiddleLayerStateInputs = []
     decoderMiddleLayerStateOutputs = []
     lastDecoderOutput = decoderPositionalEncoding
     lastDecoderStandaloneOutput = decoderStandaloneInput
+    decoderChunks = []
     # decoderBypass = []
     # decoderStandaloneBypass = []
     for i in range(layers):
         concattedInputLayer = tf.keras.layers.Concatenate(3)
+        decoderChunkInput0 = tf.keras.layers.Input(
+            shape=(decoderRecurrentCount, maxLen, dModel), dtype="float16"
+        )
+        decoderChunkInput1 = tf.keras.layers.Input(
+            shape=(decoderRecurrentCount, maxLen, dModel), dtype="float16"
+        )
+        decoderChunkInput2 = tf.keras.layers.Input(
+            shape=(decoderRecurrentCount, maxLen), dtype="float16"
+        )
         concattedInput = concattedInputLayer(
             [
                 lastDecoderOutput,
-                bridgeRNN,
+                tiler,
                 decoderAttentionMask[:, :, :, tf.newaxis],
             ]
         )
@@ -407,11 +450,28 @@ def useExtendedTransformer(
                 decoderStandaloneMaskInput[:, :, :, tf.newaxis],
             ]
         )
+        concattedChunkInput = concattedInputLayer(
+            [
+                decoderChunkInput0,
+                decoderChunkInput1,
+                decoderChunkInput2[:, :, :, tf.newaxis],
+            ]
+        )
         decoderLayer = tf.keras.layers.TimeDistributed(
             DecoderLayer(dModel, dFF, pDropout, h, maxLen, depthDecoder)
         )
         decoder = decoderLayer(concattedInput)
         decoderStandalone = decoderLayer(concattedStandaloneInput)
+        decoderChunk = decoderLayer(concattedChunkInput)
+        decoderChunks.append(
+            tf.keras.Model(
+                (decoderChunkInput0, decoderChunkInput1, decoderChunkInput2),
+                decoderChunk,
+            )
+        )
+        decoderChunkInput3 = tf.keras.layers.Input(
+            (decoderRecurrentCount, maxLen, dModel)
+        )
         decoderMiddleLayer = MiddleLayer(h, dModel // h, maxLen)
         decoderMiddleRNN, _ = decoderMiddleLayer(decoder)
         decoderMiddleRNNInitialStateInput = tf.keras.layers.Input(
@@ -422,6 +482,8 @@ def useExtendedTransformer(
             decoderMiddleLayer(decoderStandalone, decoderMiddleRNNInitialStateInput)
         )
         decoderMiddleLayerStateOutputs.append(decoderStandaloneMiddleRNNState)
+        decoderChunkMiddleRNN = decoderMiddleLayer(decoderChunkInput3)
+        decoderChunks.append(tf.keras.Model(decoderChunkInput3, decoderChunkMiddleRNN))
         # decoderBypass.append(lastDecoderOutput)
         # decoderStandaloneBypass.append(lastDecoderStandaloneOutput)
         lastDecoderOutput = decoderMiddleRNN
@@ -434,6 +496,9 @@ def useExtendedTransformer(
         #         decoderStandaloneBypass[i - j + 1], lastDecoderStandaloneOutput
         #     )
         #     j *= 2
+    decoderEndChunkInput = tf.keras.layers.Input(
+        shape=(decoderRecurrentCount, maxLen, dModel), dtype="float16"
+    )
     decoderDenseLayer = tf.keras.layers.TimeDistributed(
         layer=tf.keras.layers.Dense(
             units=depthTarget,
@@ -442,6 +507,8 @@ def useExtendedTransformer(
     )
     decoderDense = decoderDenseLayer(lastDecoderOutput)
     decoderStandaloneDense = decoderDenseLayer(lastDecoderStandaloneOutput)
+    decoderChunkDense = decoderDenseLayer(decoderEndChunkInput)
+    decoderEndChunk = tf.keras.Model(decoderEndChunkInput, decoderChunkDense)
     trainer = tf.keras.Model(
         inputs=(encoderInput, decoderInput),
         outputs=decoderDense,
@@ -470,8 +537,13 @@ def useExtendedTransformer(
         "encoder": encoder,
         "decoder": decoder,
         "encoderRNNLayer": encoderRNNLayer,
-        "bridgeRNNLayer": bridgeRNNLayer,
         "decoderEmbeddingLayer": decoderEmbeddingLayer,
+        "encoderStartChunk": encoderStartChunk,
+        "encoderChunks": encoderChunks,
+        "encoderEndChunk": encoderEndChunk,
+        "decoderStartChunk": decoderStartChunk,
+        "decoderChunks": decoderChunks,
+        "decoderEndChunk": decoderEndChunk,
     }
 
 
@@ -564,7 +636,6 @@ def predict():
         encoderRNNOutput = tf.reshape(encoderRNNOutput, (batchSize, 1, maxLen, dModel))
         decoderInput = [1]
         decoderOutputTokens = []
-        bridgeRNNState = tf.zeros((batchSize, maxLen * dModel), "float16")
         decoderState = [
             tf.zeros((batchSize, maxLen * dModel), "float16") for _ in range(layers)
         ]
@@ -572,10 +643,6 @@ def predict():
         while True:
             if bos:
                 break
-            bridgeRNNOutput, bridgeRNNState = models["bridgeRNNLayer"](
-                encoderRNNOutput, bridgeRNNState
-            )
-            bridgeRNNState = tf.reshape(bridgeRNNState, (1, maxLen * dModel))
             for k in range(8):
                 tempDecoderInput = tf.reshape(
                     (
@@ -598,7 +665,7 @@ def predict():
                     [
                         tempDecoderInput,
                         decoderMask,
-                        bridgeRNNOutput,
+                        encoderRNNOutput,
                     ]
                     + decoderState
                 )
