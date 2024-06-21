@@ -6,11 +6,11 @@ import random
 
 policy = tf.keras.mixed_precision.Policy("mixed_float16")
 tf.keras.mixed_precision.set_global_policy(policy)
-toTrain = False
+toTrain = True
 if toTrain:
-    batchSize = 1
-    encoderRecurrentCount = 8
-    decoderRecurrentCount = 2
+    batchSize = 16
+    encoderRecurrentCount = 32
+    decoderRecurrentCount = 4
 else:
     batchSize = 1
     encoderRecurrentCount = 1
@@ -257,7 +257,11 @@ class MiddleLayerCell(tf.keras.Model):
 class MiddleLayer(tf.keras.layers.RNN):
     def __init__(self, h, keyDim, maxLen, *args, **kwargs):
         super().__init__(
-            MiddleLayerCell(h, keyDim, maxLen), return_state=True, *args, **kwargs
+            MiddleLayerCell(h, keyDim, maxLen),
+            return_state=True,
+            return_sequences=True,
+            *args,
+            **kwargs
         )
         self.maxLen = maxLen
         self.keyDim = keyDim
@@ -358,7 +362,7 @@ def useExtendedTransformer(
             encoderMiddleLayer(encoderStandalone, encoderMiddleRNNInitialStateInput)
         )
         encoderMiddleLayerStateOutputs.append(encoderStandaloneMiddleRNNState)
-        encoderChunkMiddleRNN = encoderMiddleLayer(encoderChunkInput2)
+        encoderChunkMiddleRNN, _ = encoderMiddleLayer(encoderChunkInput2)
         encoderChunks.append(tf.keras.Model(encoderChunkInput2, encoderChunkMiddleRNN))
         # encoderBypass.append(lastEncoderOutput)
         # encoderStandaloneBypass.append(lastEncoderStandaloneOutput)
@@ -417,7 +421,10 @@ def useExtendedTransformer(
     decoderEmbedding = decoderEmbeddingLayer(decoderInput)
     decoderPositionalEncoding = decoderEmbedding + positionalEncoding(maxLen, dModel)
     tiler = RNNTiler()(encoderReshape3[:, tf.newaxis], decoderInput)
-    decoderStartChunk = RNNTiler()
+    decoderTileChunk = RNNTiler()
+    decoderStartChunk = tf.keras.Model(
+        decoderInput, [decoderPositionalEncoding, decoderAttentionMask]
+    )
     decoderMiddleLayerStateInputs = []
     decoderMiddleLayerStateOutputs = []
     lastDecoderOutput = decoderPositionalEncoding
@@ -482,7 +489,7 @@ def useExtendedTransformer(
             decoderMiddleLayer(decoderStandalone, decoderMiddleRNNInitialStateInput)
         )
         decoderMiddleLayerStateOutputs.append(decoderStandaloneMiddleRNNState)
-        decoderChunkMiddleRNN = decoderMiddleLayer(decoderChunkInput3)
+        decoderChunkMiddleRNN, _ = decoderMiddleLayer(decoderChunkInput3)
         decoderChunks.append(tf.keras.Model(decoderChunkInput3, decoderChunkMiddleRNN))
         # decoderBypass.append(lastDecoderOutput)
         # decoderStandaloneBypass.append(lastDecoderStandaloneOutput)
@@ -541,6 +548,7 @@ def useExtendedTransformer(
         "encoderStartChunk": encoderStartChunk,
         "encoderChunks": encoderChunks,
         "encoderEndChunk": encoderEndChunk,
+        "decoderTileChunk": decoderTileChunk,
         "decoderStartChunk": decoderStartChunk,
         "decoderChunks": decoderChunks,
         "decoderEndChunk": decoderEndChunk,
@@ -556,7 +564,6 @@ with open("./wordTokens.json", "r", -1, "utf-8") as f:
 depth = len(num2word)
 maxLen = 8
 
-stepsPerEpoch = 256
 dModel = 256
 dFF = 128
 layers = 16
@@ -567,12 +574,18 @@ def loader():
         input = []
         output = []
         input2 = []
-        for _ in range(batchSize * stepsPerEpoch):
-            startIndex = math.floor(random.random() * (len(tokens) - (64 + 16)))
-            input.append(tokens[startIndex : startIndex + 64])
-            endIndex = startIndex + 64
+        for _ in range(batchSize):
+            startIndex = math.floor(
+                random.random()
+                * (
+                    len(tokens)
+                    - (encoderRecurrentCount * 8 + decoderRecurrentCount * 8)
+                )
+            )
+            input.append(tokens[startIndex : startIndex + encoderRecurrentCount * 8])
+            endIndex = startIndex + encoderRecurrentCount * 8
             out = []
-            while len(out) != 16:
+            while len(out) != decoderRecurrentCount * 8:
                 if tokens[endIndex] != 3:
                     out.append(tokens[endIndex])
                 endIndex += 1
@@ -580,9 +593,9 @@ def loader():
             input2.append([0] + out[:-1])
 
         yield (
-            np.array(input).reshape((batchSize * stepsPerEpoch, -1, 8)),
-            np.array(input2).reshape((batchSize * stepsPerEpoch, -1, 8)),
-        ), np.array(output).reshape((batchSize * stepsPerEpoch, -1, 8))
+            np.array(input).reshape((batchSize, -1, 8)),
+            np.array(input2).reshape((batchSize, -1, 8)),
+        ), np.array(output).reshape((batchSize, -1, 8))
 
 
 def predict():
@@ -696,11 +709,6 @@ def predict():
         print()
 
 
-class Callback(tf.keras.callbacks.Callback):
-    def on_epoch_end(self, epoch, _):
-        models["trainer"].save_weights("./weights/weights")
-
-
 models = useExtendedTransformer(
     dModel,
     dFF,
@@ -718,19 +726,86 @@ tf.keras.utils.plot_model(models["trainer"], "model.png", show_shapes=True)
 
 def train():
     trainDatas = loader()
-    epoch = 0
+    step = 0
+    optimizer = tf.keras.optimizers.Adadelta(1.0)
     while True:
-        print("epoch " + str(epoch))
+        print("step: " + str(step))
         data = next(trainDatas)
-        models["trainer"].fit(
-            data[0],
-            data[1],
-            batch_size=batchSize,
-            steps_per_epoch=stepsPerEpoch,
-            epochs=1,
-            callbacks=[Callback()] if epoch % 10 == 9 else [],
+        xs = data[0]
+        ex = xs[0]
+        dx = xs[1]
+        ys = data[1]
+        totalGrads = [
+            tf.zeros_like(var) for var in models["trainer"].trainable_variables
+        ]
+        # train decoderEndChunk
+        print("train decoderEndChunk")
+        e = ex
+        e, eMask = models["encoderStartChunk"](e)
+        for i, el in enumerate(models["encoderChunks"]):
+            if i % 2 == 0:
+                e = el((e, eMask))
+            else:
+                e = el(e)
+        e = models["encoderEndChunk"](e)
+        e = models["decoderTileChunk"](e[:, tf.newaxis], dx)
+        d, dMask = models["decoderStartChunk"](dx)
+        for i, el in enumerate(models["decoderChunks"]):
+            if i % 2 == 0:
+                d = el((d, e, dMask))
+            else:
+                d = el(d)
+        f = d
+        with tf.GradientTape(persistent=True) as tape:
+            tape.watch(d)
+            d = models["decoderEndChunk"](d)
+            d = tf.keras.losses.sparse_categorical_crossentropy(ys, d)
+        grads = tape.gradient(d, models["trainer"].trainable_variables, None, "zero")
+        nextGrads = tape.gradient(d, f)
+        loss = d
+        totalGrads = [tg + g for tg, g in zip(totalGrads, grads)]
+        # train decoderChunks
+        eGrads = tf.zeros_like(nextGrads)
+        for i in range(layers * 2):
+            ii = layers * 2 - i - 1
+            print("train decoderChunks: " + str(ii))
+            d, dMask = models["decoderStartChunk"](dx)
+            for j, el in enumerate(models["decoderChunks"][:ii]):
+                if j % 2 == 0:
+                    d = el((d, e, dMask))
+                else:
+                    d = el(d)
+            f = d
+            with tf.GradientTape(persistent=True) as tape:
+                tape.watch(f)
+                if ii % 2 == 0:
+                    tape.watch(e)
+                    d = models["decoderChunks"][ii]((d, e, dMask))
+                else:
+                    d = models["decoderChunks"][ii](d)
+            grads = tape.gradient(
+                d, models["trainer"].trainable_variables, nextGrads, "zero"
+            )
+            if ii % 2 == 0:
+                eGrads += tape.gradient(d, e, nextGrads)
+            nextGrads = tape.gradient(d, f, nextGrads)
+            totalGrads = [tg + g for tg, g in zip(totalGrads, grads)]
+        # train decoderStartChunk
+        print("train decoderStartChunk")
+        f = dx
+        with tf.GradientTape(persistent=True) as tape:
+            tape.watch(d)
+            d, dMask = models["decoderStartChunk"](dx)
+        grads = tape.gradient(
+            d, models["trainer"].trainable_variables, nextGrads, "zero"
         )
-        epoch += 1
+        totalGrads = [tg + g for tg, g in zip(totalGrads, grads)]
+        print("loss: ", tf.reduce_mean(loss).numpy())
+        optimizer.apply_gradients(
+            zip(totalGrads, models["trainer"].trainable_variables)
+        )
+        step += 1
+        break
 
 
 # models["trainer"].load_weights("./weights/weights")
