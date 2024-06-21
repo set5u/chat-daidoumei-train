@@ -847,7 +847,7 @@ def train_step(optimizer, trainDatas=loader()):
 # models["trainer"].load_weights("./weights/weights")
 
 if toTrain:
-    optimizer = tf.keras.optimizers.Adadelta(1.0)
+    optimizer = tf.keras.optimizers.Adadelta()
     step = 0
     while True:
         print("step: " + str(step))
