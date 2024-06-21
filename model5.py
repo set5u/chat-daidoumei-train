@@ -8,7 +8,7 @@ policy = tf.keras.mixed_precision.Policy("mixed_float16")
 tf.keras.mixed_precision.set_global_policy(policy)
 toTrain = True
 if toTrain:
-    batchSize = 16
+    batchSize = 128
     encoderRecurrentCount = 32
     decoderRecurrentCount = 4
 else:
