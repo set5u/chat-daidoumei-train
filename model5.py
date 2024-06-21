@@ -853,7 +853,7 @@ if toTrain:
         print("step: " + str(step))
         train_step(optimizer)
         step += 1
-        if step % 100 == 0:
+        if step % 10 == 0:
             models["trainer"].save_weights("./weights/weights")
 else:
     predict()
