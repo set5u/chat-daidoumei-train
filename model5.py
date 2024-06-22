@@ -4,11 +4,11 @@ import numpy as np
 import math
 import random
 
-# policy = tf.keras.mixed_precision.Policy("mixed_float16")
-# tf.keras.mixed_precision.set_global_policy(policy)
+policy = tf.keras.mixed_precision.Policy("mixed_float16")
+tf.keras.mixed_precision.set_global_policy(policy)
 toTrain = True
 if toTrain:
-    batchSize = 64
+    batchSize = 128
     encoderRecurrentCount = 32
     decoderRecurrentCount = 4
 else:
@@ -29,7 +29,7 @@ def load(weights: str):
     weights = weights.split("\n")
     ret = []
     for weight in weights:
-        ret.append(np.array(json.loads(weight), "float32"))
+        ret.append(np.array(json.loads(weight), "float16"))
     return ret
 
 
@@ -61,7 +61,7 @@ def positionalEncoding(length, depth):
                 if j % 2
                 else math.cos(i / 10000 ** (j / depth))
             )
-    return tf.constant(ret, "float32")
+    return tf.constant(ret, "float16")
 
 
 class RNNTiler(tf.keras.Model):
@@ -100,7 +100,7 @@ class FF(tf.keras.Model):
                 if use_causal_mask
                 else tf.ones((maxLen, maxLen))
             ),
-            "float32",
+            "float16",
         )
         self.ff0 = tf.keras.layers.Dense(dFF, activation="relu")
         self.ff1 = tf.keras.layers.Dense(dModel, activation="linear")
@@ -224,19 +224,13 @@ class MiddleLayerCell(tf.keras.Model):
         self.addNorm = AddNorm()
 
     def build(self, _):
-        self.addNorm.build((None, self.maxLen, self.keyDim * self.h))
+        self.addNorm.build((None, self.maxLen * self.keyDim * self.h))
 
     def call(self, *inputs):
-        ret = tf.reshape(
-            inputs[0],
-            (inputs[0].shape[0], self.maxLen, self.keyDim * self.h),
-        )
-        state = tf.reshape(
-            inputs[1][0],
-            (inputs[0].shape[0], self.maxLen, self.keyDim * self.h),
-        )
+        ret = inputs[0]
+        state = inputs[1][0]
         ret = self.addNorm(ret, state)
-        ret = tf.reshape(ret, (inputs[0].shape[0], -1))
+        ret = tf.tanh(ret)
         return ret, ret
 
 
@@ -305,10 +299,10 @@ def useExtendedTransformer(
     # encoderStandaloneBypass = []
     for i in range(layers):
         encoderChunkInput0 = tf.keras.layers.Input(
-            shape=(encoderRecurrentCount, maxLen, dModel), dtype="float32"
+            shape=(encoderRecurrentCount, maxLen, dModel), dtype="float16"
         )
         encoderChunkInput1 = tf.keras.layers.Input(
-            shape=(encoderRecurrentCount, maxLen), dtype="float32"
+            shape=(encoderRecurrentCount, maxLen), dtype="float16"
         )
         concattedInputLayer = tf.keras.layers.Concatenate(3)
         concattedInput = concattedInputLayer(
@@ -336,12 +330,12 @@ def useExtendedTransformer(
             tf.keras.Model([encoderChunkInput0, encoderChunkInput1], encoderChunk)
         )
         encoderChunkInput2 = tf.keras.layers.Input(
-            shape=(encoderRecurrentCount, maxLen, dModel), dtype="float32"
+            shape=(encoderRecurrentCount, maxLen, dModel), dtype="float16"
         )
         encoderMiddleLayer = MiddleLayer(h, dModel // h, maxLen)
         encoderMiddleRNN, _ = encoderMiddleLayer(encoder)
         encoderMiddleRNNInitialStateInput = tf.keras.layers.Input(
-            shape=(maxLen * dModel,), dtype="float32"
+            shape=(maxLen * dModel,), dtype="float16"
         )
         encoderMiddleLayerStateInputs.append(encoderMiddleRNNInitialStateInput)
         encoderStandaloneMiddleRNN, encoderStandaloneMiddleRNNState = (
@@ -363,7 +357,7 @@ def useExtendedTransformer(
         #     )
         #     j *= 2
     encoderEndChunkInput = tf.keras.layers.Input(
-        shape=(encoderRecurrentCount, maxLen, dModel), dtype="float32"
+        shape=(encoderRecurrentCount, maxLen, dModel), dtype="float16"
     )
     encoderReshapeLayer2 = tf.keras.layers.Reshape(
         target_shape=(encoderRecurrentCount, maxLen * dModel)
@@ -382,10 +376,10 @@ def useExtendedTransformer(
     encoderEndChunk = tf.keras.Model(encoderEndChunkInput, encoderChunkReshape3)
     decoderInput = tf.keras.Input(shape=(decoderRecurrentCount, maxLen))
     decoderStandaloneRNNInput = tf.keras.Input(
-        shape=(decoderRecurrentCount, maxLen, dModel), dtype="float32"
+        shape=(decoderRecurrentCount, maxLen, dModel), dtype="float16"
     )
     decoderStandaloneInput = tf.keras.Input(
-        shape=(decoderRecurrentCount, maxLen, dModel), dtype="float32"
+        shape=(decoderRecurrentCount, maxLen, dModel), dtype="float16"
     )
     decoderStandaloneMaskInput = tf.keras.Input(
         shape=(decoderRecurrentCount, maxLen),
@@ -421,13 +415,13 @@ def useExtendedTransformer(
     for i in range(layers):
         concattedInputLayer = tf.keras.layers.Concatenate(3)
         decoderChunkInput0 = tf.keras.layers.Input(
-            shape=(decoderRecurrentCount, maxLen, dModel), dtype="float32"
+            shape=(decoderRecurrentCount, maxLen, dModel), dtype="float16"
         )
         decoderChunkInput1 = tf.keras.layers.Input(
-            shape=(decoderRecurrentCount, maxLen, dModel), dtype="float32"
+            shape=(decoderRecurrentCount, maxLen, dModel), dtype="float16"
         )
         decoderChunkInput2 = tf.keras.layers.Input(
-            shape=(decoderRecurrentCount, maxLen), dtype="float32"
+            shape=(decoderRecurrentCount, maxLen), dtype="float16"
         )
         concattedInput = concattedInputLayer(
             [
@@ -468,7 +462,7 @@ def useExtendedTransformer(
         decoderMiddleLayer = MiddleLayer(h, dModel // h, maxLen)
         decoderMiddleRNN, _ = decoderMiddleLayer(decoder)
         decoderMiddleRNNInitialStateInput = tf.keras.layers.Input(
-            shape=(maxLen * dModel,), dtype="float32"
+            shape=(maxLen * dModel,), dtype="float16"
         )
         decoderMiddleLayerStateInputs.append(decoderMiddleRNNInitialStateInput)
         decoderStandaloneMiddleRNN, decoderStandaloneMiddleRNNState = (
@@ -490,7 +484,7 @@ def useExtendedTransformer(
         #     )
         #     j *= 2
     decoderEndChunkInput = tf.keras.layers.Input(
-        shape=(decoderRecurrentCount, maxLen, dModel), dtype="float32"
+        shape=(decoderRecurrentCount, maxLen, dModel), dtype="float16"
     )
     decoderDenseLayer = tf.keras.layers.TimeDistributed(
         layer=tf.keras.layers.Dense(
@@ -590,9 +584,9 @@ def predict():
         tf.newaxis, tf.newaxis, :, :
     ]
     encoderState = [
-        tf.zeros((batchSize, maxLen * dModel), "float32") for _ in range(layers)
+        tf.zeros((batchSize, maxLen * dModel), "float16") for _ in range(layers)
     ]
-    encoderRNNState = tf.zeros((batchSize, maxLen * dModel), "float32")
+    encoderRNNState = tf.zeros((batchSize, maxLen * dModel), "float16")
     while True:
         while len(encoderInput) > 8:
             tempEncoderInput = tf.reshape(
@@ -636,7 +630,7 @@ def predict():
         decoderInput = [1]
         decoderOutputTokens = []
         decoderState = [
-            tf.zeros((batchSize, maxLen * dModel), "float32") for _ in range(layers)
+            tf.zeros((batchSize, maxLen * dModel), "float16") for _ in range(layers)
         ]
         bos = False
         while True:
@@ -699,7 +693,7 @@ models = useExtendedTransformer(
     dModel,
     dFF,
     0.1,
-    4,
+    16,
     maxLen,
     depth,
     depth,
@@ -781,7 +775,7 @@ def train_step(optimizer, trainDatas=loader()):
         tape.watch(encoderChunksOut)
         e = models["encoderEndChunk"](encoderChunksOut)
     grads = tape.gradient(e, models["trainer"].trainable_variables, eGrads, "zero")
-    nextGrads = tape.gradient(e, encoderEndChunk, eGrads)
+    nextGrads = tape.gradient(e, encoderChunksOut, eGrads)
     totalGrads = [tg + g for tg, g in zip(totalGrads, grads)]
     for i, encoderChunk in enumerate(reversed(encoderChunks)):
         # print("train encoderChunk " + str(i))
