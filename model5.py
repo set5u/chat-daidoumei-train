@@ -102,32 +102,18 @@ class FF(tf.keras.Model):
             ),
             "float32",
         )
-        self.ff0 = tf.keras.layers.EinsumDense(
-            "acfd,de->ace", (maxLen, dFF), activation="relu"
-        )
-        self.ff1 = tf.keras.layers.EinsumDense(
-            "acfe,dc->acd", (maxLen, dModel), activation="linear"
-        )
+        self.ff0 = tf.keras.layers.Dense(dFF, activation="relu")
+        self.ff1 = tf.keras.layers.Dense(dModel, activation="linear")
         self.maxLen = maxLen
 
     def build(self, input_shape):
-        input_shape = (
-            input_shape[0:1] + input_shape[1:2] + input_shape[1:2] + input_shape[2:]
-        )
         self.ff0.build(input_shape)
         input_shape = self.ff0.compute_output_shape(input_shape)
-        input_shape = (
-            input_shape[0:1] + input_shape[1:2] + input_shape[1:2] + input_shape[2:]
-        )
         self.ff1.build(input_shape)
 
     def call(self, *inputs):
-        mask = self.mask[tf.newaxis, :, :, tf.newaxis]
-        input = tf.tile(inputs[0][:, tf.newaxis], (1, self.maxLen, 1, 1))
-        ret = input * mask
+        ret = inputs[0]
         ret = self.ff0(ret)
-        ret = tf.tile(ret[:, tf.newaxis], (1, self.maxLen, 1, 1))
-        ret = ret * mask
         ret = self.ff1(ret)
         return ret
 
@@ -766,7 +752,7 @@ def train_step(optimizer, trainDatas=loader()):
     totalGrads = [tg + g for tg, g in zip(totalGrads, grads)]
     # train decoderChunks
     eGrads = 0
-    for i, decoderChunk in enumerate(decoderChunks):
+    for i, decoderChunk in enumerate(reversed(decoderChunks)):
         # print("train decoderChunk " + str(i))
         f = decoderChunk
         with tf.GradientTape(persistent=True) as tape:
@@ -797,7 +783,7 @@ def train_step(optimizer, trainDatas=loader()):
     grads = tape.gradient(e, models["trainer"].trainable_variables, eGrads, "zero")
     nextGrads = tape.gradient(e, encoderEndChunk, eGrads)
     totalGrads = [tg + g for tg, g in zip(totalGrads, grads)]
-    for i, encoderChunk in enumerate(encoderChunks):
+    for i, encoderChunk in enumerate(reversed(encoderChunks)):
         # print("train encoderChunk " + str(i))
         f = encoderChunk
         with tf.GradientTape(persistent=True) as tape:
