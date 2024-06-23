@@ -7,8 +7,8 @@ import tensorflow_model_optimization as tfmot
 
 quantize_model = tfmot.quantization.keras.quantize_model
 
-policy = tf.keras.mixed_precision.Policy("mixed_float16")
-tf.keras.mixed_precision.set_global_policy(policy)
+# policy = tf.keras.mixed_precision.Policy("mixed_float16")
+# tf.keras.mixed_precision.set_global_policy(policy)
 toTrain = True
 
 
@@ -31,14 +31,14 @@ def positionalEncoding(length, depth):
                 if j % 2
                 else math.cos(i / 10000 ** (j / depth))
             )
-    return tf.constant(ret, "float16")
+    return tf.constant(ret, "float32")
 
 
 def load(weights: str):
     weights = weights.split("\n")
     ret = []
     for weight in weights:
-        ret.append(np.array(json.loads(weight), "float16"))
+        ret.append(np.array(json.loads(weight), "float32"))
     return ret
 
 
@@ -205,6 +205,7 @@ dModel = 16
 dFF = 32
 layers = 4
 h = 4
+numRecur = 4
 models = useExtendedTransformer(
     dModel,
     dFF,
@@ -216,6 +217,12 @@ models = useExtendedTransformer(
     depth,
     layers,
 )
+models["encoderStart"].summary()
+models["encoders"][0].summary()
+models["encoderEnd"].summary()
+models["decoderStart"].summary()
+models["decoders"][0].summary()
+models["decoderEnd"].summary()
 tf.keras.utils.plot_model(models["encoderStart"], "encoderStart.png", show_shapes=True)
 tf.keras.utils.plot_model(models["encoders"][0], "encoder.png", show_shapes=True)
 tf.keras.utils.plot_model(models["encoderEnd"], "encoderEnd.png", show_shapes=True)
@@ -223,13 +230,19 @@ tf.keras.utils.plot_model(models["decoderStart"], "decoderStart.png", show_shape
 tf.keras.utils.plot_model(models["decoders"][0], "decoder.png", show_shapes=True)
 tf.keras.utils.plot_model(models["decoderEnd"], "decoderEnd.png", show_shapes=True)
 
+batchSize = 64 if toTrain else 1
+
+
+def predict():
+    states = []
+
 
 def loader():
     while True:
         input = []
         output = []
         input2 = []
-        for _ in range(16):
+        for _ in range(batchSize):
             startIndex = math.floor(random.random() * (len(tokens) - (16 + 16)))
             input.append(tokens[startIndex : startIndex + 16])
             endIndex = startIndex + 16
@@ -245,3 +258,13 @@ def loader():
             np.array(input).reshape((16, -1, 8)),
             np.array(input2).reshape((16, -1, 8)),
         ), np.array(output).reshape((16, -1, 8))
+
+
+def train():
+    pass
+
+
+if toTrain:
+    train()
+else:
+    predict()
