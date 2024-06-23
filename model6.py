@@ -321,7 +321,7 @@ def predict():
 
 
 encoderRecurrentCount = 4
-encoderLength = 8**encoderRecurrentCount
+encoderLength = maxLen**encoderRecurrentCount
 decoderLength = 256
 
 
