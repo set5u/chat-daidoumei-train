@@ -320,8 +320,9 @@ def predict():
             decoderInput.append(result)
 
 
-encoderRecurrentCount = 2048
-decoderRecurrentCount = 256
+encoderRecurrentCount = 4
+encoderLength = 8**encoderRecurrentCount
+decoderLength = 256
 
 
 def loader():
@@ -331,13 +332,12 @@ def loader():
         input2 = []
         for _ in range(batchSize):
             startIndex = math.floor(
-                random.random()
-                * (len(tokens) - (encoderRecurrentCount + decoderRecurrentCount + 1))
+                random.random() * (len(tokens) - (encoderLength + decoderLength + 1))
             )
-            input.append(tokens[startIndex : startIndex + encoderRecurrentCount])
-            endIndex = startIndex + encoderRecurrentCount
+            input.append(tokens[startIndex : startIndex + encoderLength])
+            endIndex = startIndex + encoderLength
             out = []
-            while len(out) != decoderRecurrentCount:
+            while len(out) != decoderLength:
                 if tokens[endIndex] != 3:
                     out.append(tokens[endIndex])
                 endIndex += 1
