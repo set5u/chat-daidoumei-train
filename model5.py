@@ -3,6 +3,9 @@ import tensorflow as tf
 import numpy as np
 import math
 import random
+import tensorflow_model_optimization as tfmot
+
+quantize_model = tfmot.quantization.keras.quantize_model
 
 policy = tf.keras.mixed_precision.Policy("mixed_float16")
 tf.keras.mixed_precision.set_global_policy(policy)
@@ -803,6 +806,7 @@ def train_step(optimizer, trainDatas=loader()):
 # models["trainer"].load_weights("./weights/weights")
 
 if toTrain:
+    # models["trainer"] = quantize_model(models["trainer"])
     optimizer = tf.keras.optimizers.Adadelta(1.0)
     step = 0
     while True:
