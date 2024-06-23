@@ -9,7 +9,7 @@ quantize_model = tfmot.quantization.keras.quantize_model
 
 # policy = tf.keras.mixed_precision.Policy("mixed_float16")
 # tf.keras.mixed_precision.set_global_policy(policy)
-toTrain = True
+toTrain = False
 
 
 def save(model):
@@ -234,7 +234,94 @@ batchSize = 64 if toTrain else 1
 
 
 def predict():
-    states = []
+    zeroState = np.array([[[0.0 for _ in range(dModel)] for _ in range(maxLen)]])
+    states = [[]]
+
+    encoderInput = []
+    positionalEncodingInput = positionalEncoding(maxLen, dModel)[tf.newaxis, :, :]
+    encoderStates = [zeroState for _ in range(layers)]
+    while True:
+        once = True
+        while once or len(encoderInput) > maxLen:
+            e, eMask = models["encoderStart"](
+                (
+                    positionalEncodingInput,
+                    tf.constant(
+                        [[0] * (8 - len(encoderInput)) + encoderInput[:maxLen]]
+                    ),
+                )
+            )
+            for i, state in enumerate(encoderStates):
+                e = models["encoders"][i]((e, eMask, state))
+                if len(encoderInput) > maxLen:
+                    encoderInput = encoderInput[maxLen:]
+                    encoderStates[i] = e
+            states[0].append(e)
+            for i, state in enumerate(states):
+                if len(state) == maxLen:
+                    if len(states) == i + 1:
+                        states.append([])
+                    states[i + 1].append(
+                        models["encoderEnd"](
+                            tf.reshape(
+                                tf.transpose(state, (1, 0, 2, 3)),
+                                (1, maxLen**2, dModel),
+                            )
+                        )
+                    )
+                    states[i] = []
+            currentState = zeroState
+            for i, state in enumerate(states):
+                currentState = models["encoderEnd"](
+                    tf.reshape(
+                        tf.transpose(
+                            [zeroState] * (7 - len(state)) + [currentState] + state,
+                            (1, 0, 2, 3),
+                        ),
+                        (1, maxLen**2, dModel),
+                    )
+                )
+            once = False
+        decoderInput = []
+        decoderStates = [zeroState for _ in range(layers)]
+        while True:
+            d, dMask = models["decoderStart"](
+                (
+                    positionalEncodingInput,
+                    tf.constant([[0] * (8 - len(decoderInput)) + decoderInput]),
+                )
+            )
+            for i, state in enumerate(decoderStates):
+                d = models["decoders"][i]((d, dMask, currentState, state))
+                if len(decoderInput) == maxLen:
+                    decoderInput = []
+                    decoderStates[i] = d
+            decoderOut = models["decoderEnd"](d)
+            decoderSorted = tf.argsort(decoderOut[0][(len(decoderInput) + 1) % maxLen])
+            results = []
+            sum = 0
+            for l in range(5):
+                c = decoderOut[0][(len(decoderInput) + 1) % maxLen][
+                    decoderSorted[~l]
+                ].numpy()
+                sum += c
+                results.append(c)
+            r = random.random() * sum
+            t = 0
+            m = 0
+            while t < r:
+                t += results[m]
+                m += 1
+            result = decoderSorted[~m + 1].numpy()
+            print(num2word[result], end="\n" if result == 1 else "", flush=True)
+            if result == 1:
+                encoderInput.extend(decoderInput)
+                break
+            decoderInput.append(result)
+
+
+encoderRecurrentCount = 2048
+decoderRecurrentCount = 256
 
 
 def loader():
@@ -243,11 +330,14 @@ def loader():
         output = []
         input2 = []
         for _ in range(batchSize):
-            startIndex = math.floor(random.random() * (len(tokens) - (16 + 16)))
-            input.append(tokens[startIndex : startIndex + 16])
-            endIndex = startIndex + 16
+            startIndex = math.floor(
+                random.random()
+                * (len(tokens) - (encoderRecurrentCount + decoderRecurrentCount + 1))
+            )
+            input.append(tokens[startIndex : startIndex + encoderRecurrentCount])
+            endIndex = startIndex + encoderRecurrentCount
             out = []
-            while len(out) != 16:
+            while len(out) != decoderRecurrentCount:
                 if tokens[endIndex] != 3:
                     out.append(tokens[endIndex])
                 endIndex += 1
@@ -255,9 +345,9 @@ def loader():
             input2.append([0] + out[:-1])
 
         yield (
-            np.array(input).reshape((16, -1, 8)),
-            np.array(input2).reshape((16, -1, 8)),
-        ), np.array(output).reshape((16, -1, 8))
+            np.array(input).reshape((batchSize, -1, 8)),
+            np.array(input2).reshape((batchSize, -1, 8)),
+        ), np.array(output).reshape((batchSize, -1, 8))
 
 
 def train():
