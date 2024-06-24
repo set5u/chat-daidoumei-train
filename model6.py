@@ -180,7 +180,7 @@ def useExtendedTransformer(
             )
         )
     decoderEndInput = tf.keras.Input((maxLen, dModel))
-    decoderEndDense = tf.keras.layers.Dense(depthTarget)(decoderEndInput)
+    decoderEndDense = tf.keras.layers.Dense(depthTarget, "softmax")(decoderEndInput)
     decoderEnd = tf.keras.Model(decoderEndInput, decoderEndDense)
     return {
         "encoderStart": encoderStart,
@@ -402,6 +402,28 @@ def train_step(optimizer, trainDatas):
     encoderEndOut = models["encoderEnd"](
         encoderEndOut[:, 0, :, :], training=True
     )  # (B,maxLen,dModel)
+    decoderStartOuts = []  # ((numRecur,B,maxLen,dModel),(numRecur,B,maxLen))[]
+    for i in range(decoderLength // maxLen):
+        decoderStartOuts.append(
+            models["decoderStart"]((positionalEncodingInput, dx[:, i]), training=True)
+        )
+    decodersIns = []  # (numRecur,layers,B,maxLen,dModel)
+    decodersOut = [o[0] for o in decoderStartOuts]  # (numRecur,B,maxLen,dModel)
+    decoderStates = [zeroState for _ in range(layers)]  # (layers,B,maxLen,dModel)
+    for i in range(decoderLength // maxLen):
+        decodersIns.append([])
+        for j in range(layers):
+            decodersIns[i].append(decodersOut[i])
+            decodersOut[i] = models["decoders"][j](
+                (
+                    decodersOut[i],
+                    decoderStartOuts[i][1][:, :, tf.newaxis],
+                    encoderEndOut,
+                    decoderStates[j],
+                ),
+                training=True,
+            )
+            decoderStates[j] = decodersOut[i]
 
 
 # models["encoderStart"].load_weights("./weights/encoderStart")
