@@ -209,7 +209,7 @@ numRecur = 4
 models = useExtendedTransformer(
     dModel,
     dFF,
-    0.1,
+    0.2,
     h,
     maxLen,
     depth,
@@ -350,11 +350,82 @@ def loader():
         ), np.array(output).reshape((batchSize, -1, 8))
 
 
-def train():
-    pass
+def train_step(optimizer, trainDatas):
+    positionalEncodingInput = positionalEncoding(maxLen, dModel)[tf.newaxis, :, :]
+    zeroState = np.array([[[0.0 for _ in range(dModel)] for _ in range(maxLen)]])
+    data = next(trainDatas)
+    xs = data[0]
+    ex = xs[0]
+    dx = xs[1]
+    ys = data[1]
+    # 順伝播
+    encoderStartOuts = []
+    for i in range(encoderLength // maxLen):
+        encoderStartOuts.append(
+            models["encoderStart"]((positionalEncodingInput, ex[:, i]), training=True)
+        )
+    encodersOuts = []
+    encoderStates = [zeroState for _ in range(layers)]
+    for i in range(encoderLength // maxLen):
+        lastEncoderInput = encoderStartOuts[i][0]
+        encodersOuts.append([])
+        for j in range(layers):
+            out = models["encoders"][j](
+                (
+                    lastEncoderInput,
+                    encoderStartOuts[i][1],
+                    encoderStates[j],
+                ),
+                training=True,
+            )
+            lastEncoderInput = out
+            encoderStates[j] = out
+            encodersOuts[i].append(out)
+    encoderOuts = tf.reshape(encoderOuts, (-1, maxLen, maxLen**2, dModel))
+    encoderEndOuts = []
+    while encoderOuts.shape[0] != 1:
+        newEncoderOuts = []
+        for encoderOut in encoderOuts:
+            out = models["encoderEnd"](encoderOut, training=True)
+            newEncoderOuts.append(out)
+        encoderOuts = tf.reshape(newEncoderOuts, (-1, maxLen, maxLen**2, dModel))
+        encoderEndOuts.append(newEncoderOuts)
+    out = models["encoderEnd"](encoderOuts[0], training=True)
+    encoderEndOuts.append(out)
+    encoderEndOut = models["encoderEnd"](
+        tf.reshape(encoderEndOuts, (batchSize, maxLen**2, dModel)), training=True
+    )
+    decoderStartOuts = []
+    for i in range(encoderLength // maxLen):
+        decoderStartOuts.append(
+            models["decoderStart"]((positionalEncodingInput, dx[:, i]), training=True)
+        )
 
+
+# models["encoderStart"].load_weights("./weights/encoderStart")
+# for i in range(layers):
+#     models["encoders"][i].load_weights("./weights/encoder" + str(i))
+# models["encoderEnd"].load_weights("./weights/encoderEnd")
+# models["decoderStart"].load_weights("./weights/decoderStart")
+# for i in range(layers):
+#     models["decoders"][i].load_weights("./weights/decoder" + str(i))
+# models["decoderEnd"].load_weights("./weights/decoderEnd")
 
 if toTrain:
-    train()
+    optimizer = tf.keras.optimizers.Adadelta(1.0)
+    trainDatas = loader()
+    step = 0
+    while True:
+        print("step:", step, ",loss:", train_step(optimizer, trainDatas))
+        step += 1
+        if step % 10 == 0:
+            models["encoderStart"].save_weights("./weights/encoderStart")
+            for i in range(layers):
+                models["encoders"][i].save_weights("./weights/encoder" + str(i))
+            models["encoderEnd"].save_weights("./weights/encoderEnd")
+            models["decoderStart"].save_weights("./weights/decoderStart")
+            for i in range(layers):
+                models["decoders"][i].save_weights("./weights/decoder" + str(i))
+            models["decoderEnd"].save_weights("./weights/decoderEnd")
 else:
     predict()
