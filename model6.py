@@ -359,14 +359,23 @@ def train_step(optimizer, trainDatas):
     dx = xs[1]
     ys = data[1]
     # 順伝播
-    encoderStartOuts = []  # ((numRecur,B,maxLen,dModel),(numRecur,B,maxLen))
+    encoderStartOuts = []  # ((numRecur,B,maxLen,dModel),(numRecur,B,maxLen))[]
     for i in range(encoderLength // maxLen):
         encoderStartOuts.append(
             models["encoderStart"]((positionalEncodingInput, ex[:, i]), training=True)
         )
     encodersIns = []  # (numRecur,layers,B,maxLen,dModel)
-    encodersOut = [o[0] for o in encoderStartOuts]  # (layers,B,maxLen,dModel)
-    encoderStates = [zeroState for _ in range(layers)]
+    encodersOut = [o[0] for o in encoderStartOuts]  # (numRecur,B,maxLen,dModel)
+    encoderStates = [zeroState for _ in range(layers)]  # (layers,B,maxLen,dModel)
+    for i in range(encoderLength // maxLen):
+        encodersIns.append([])
+        for j in range(layers):
+            encodersIns[i].append(encodersOut[i])
+            encodersOut[i] = models["encoders"][j](
+                (encodersOut[i], encoderStartOuts[i][1], encoderStates[j]),
+                training=True,
+            )
+            encoderStates[j] = encodersOut[i]
 
 
 # models["encoderStart"].load_weights("./weights/encoderStart")
