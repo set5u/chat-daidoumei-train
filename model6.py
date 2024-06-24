@@ -364,31 +364,8 @@ def train_step(optimizer, trainDatas):
         encoderStartOuts.append(
             models["encoderStart"]((positionalEncodingInput, ex[:, i]), training=True)
         )
-    encodersOuts = []
+    encodersIns = []  # (numRecur,layers,B,maxLen,dModel)
     encoderStates = [zeroState for _ in range(layers)]
-    for i in range(encoderLength // maxLen):
-        lastEncoderInput = encoderStartOuts[i][0]
-        encodersOuts.append([])
-        for j in range(layers):
-            out = models["encoders"][j](
-                (
-                    lastEncoderInput,
-                    encoderStartOuts[i][1],
-                    encoderStates[j],
-                ),
-                training=True,
-            )
-            lastEncoderInput = out
-            encoderStates[j] = out
-            encodersOuts[i].append(out)
-    encoderOuts = tf.reshape(encoderOuts, (-1, maxLen, maxLen**2, dModel))
-    encoderEndOuts = []
-
-    decoderStartOuts = []
-    for i in range(encoderLength // maxLen):
-        decoderStartOuts.append(
-            models["decoderStart"]((positionalEncodingInput, dx[:, i]), training=True)
-        )
 
 
 # models["encoderStart"].load_weights("./weights/encoderStart")
