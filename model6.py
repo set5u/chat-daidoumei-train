@@ -9,7 +9,7 @@ quantize_model = tfmot.quantization.keras.quantize_model
 
 # policy = tf.keras.mixed_precision.Policy("mixed_float16")
 # tf.keras.mixed_precision.set_global_policy(policy)
-toTrain = False
+toTrain = True
 
 
 def save(model):
@@ -77,7 +77,7 @@ def useExtendedTransformer(
     encoders = []
     for i in range(layers):
         encoderLayerInput = tf.keras.Input((maxLen, dModel))
-        encoderMaskInput = tf.keras.Input((maxLen))
+        encoderMaskInput = tf.keras.Input((maxLen, 1))
         encoderMultiHeadAttention = tf.keras.layers.MultiHeadAttention(h, dModel)(
             encoderLayerInput, encoderLayerInput, attention_mask=encoderMaskInput
         )
@@ -138,7 +138,7 @@ def useExtendedTransformer(
     for i in range(layers):
         decoderLayerInput = tf.keras.Input((maxLen, dModel))
         decoderEncoderInput = tf.keras.Input((maxLen, dModel))
-        decoderMaskInput = tf.keras.Input((maxLen))
+        decoderMaskInput = tf.keras.Input((maxLen, 1))
         decoderMultiHeadAttention0 = tf.keras.layers.MultiHeadAttention(h, dModel)(
             decoderLayerInput,
             decoderLayerInput,
@@ -252,7 +252,7 @@ def predict():
                 )
             )
             for i, state in enumerate(encoderStates):
-                e = models["encoders"][i]((e, eMask, state))
+                e = models["encoders"][i]((e, eMask[:, :, tf.newaxis], state))
                 if len(encoderInput) > maxLen:
                     encoderInput = encoderInput[maxLen:]
                     encoderStates[i] = e
@@ -292,7 +292,9 @@ def predict():
                 )
             )
             for i, state in enumerate(decoderStates):
-                d = models["decoders"][i]((d, dMask, currentState, state))
+                d = models["decoders"][i](
+                    (d, dMask[:, :, tf.newaxis], currentState, state)
+                )
                 if len(decoderInput) == maxLen:
                     decoderInput = []
                     decoderStates[i] = d
@@ -358,7 +360,7 @@ def train_step(optimizer, trainDatas):
     ex = xs[0]
     dx = xs[1]
     ys = data[1]
-    # 順伝播
+    # fore
     encoderStartOuts = []  # ((numRecur,B,maxLen,dModel),(numRecur,B,maxLen))[]
     for i in range(encoderLength // maxLen):
         encoderStartOuts.append(
@@ -372,10 +374,34 @@ def train_step(optimizer, trainDatas):
         for j in range(layers):
             encodersIns[i].append(encodersOut[i])
             encodersOut[i] = models["encoders"][j](
-                (encodersOut[i], encoderStartOuts[i][1], encoderStates[j]),
+                (
+                    encodersOut[i],
+                    encoderStartOuts[i][1][:, :, tf.newaxis],
+                    encoderStates[j],
+                ),
                 training=True,
             )
             encoderStates[j] = encodersOut[i]
+    encoderEndIn = tf.reshape(
+        tf.transpose(encodersOut, (1, 0, 2, 3)),
+        (-1, encoderLength // (maxLen**2), maxLen**2, dModel),
+    )  # (B,numRecur//maxLen,maxLen**2,dModel)
+    encoderEndOut = encoderEndIn  # (B,numRecur//maxLen,maxLen**2,dModel)
+    encoderEndIns = []
+    for i in range(encoderRecurrentCount - 1):
+        encoderEndIns.append([])
+        temp = []  # (numRecur//maxLen,B,maxLen,dModel)
+        for j in range(maxLen ** (encoderRecurrentCount - i - 1)):
+            encoderEndIns[i].append(encoderEndOut[:, i, :, :])
+            temp.append(models["encoderEnd"](encoderEndOut[:, i, :, :], training=True))
+        encoderEndOut = tf.reshape(
+            tf.transpose(temp, (1, 0, 2, 3)),
+            (batchSize, -1, maxLen**2, dModel),
+        )
+    encoderEndIns.append([encoderEndOut[:, 0, :, :]])
+    encoderEndOut = models["encoderEnd"](
+        encoderEndOut[:, 0, :, :], training=True
+    )  # (B,maxLen,dModel)
 
 
 # models["encoderStart"].load_weights("./weights/encoderStart")
