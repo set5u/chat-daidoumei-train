@@ -383,18 +383,7 @@ def train_step(optimizer, trainDatas):
             encodersOuts[i].append(out)
     encoderOuts = tf.reshape(encoderOuts, (-1, maxLen, maxLen**2, dModel))
     encoderEndOuts = []
-    while encoderOuts.shape[0] != 1:
-        newEncoderOuts = []
-        for encoderOut in encoderOuts:
-            out = models["encoderEnd"](encoderOut, training=True)
-            newEncoderOuts.append(out)
-        encoderOuts = tf.reshape(newEncoderOuts, (-1, maxLen, maxLen**2, dModel))
-        encoderEndOuts.append(newEncoderOuts)
-    out = models["encoderEnd"](encoderOuts[0], training=True)
-    encoderEndOuts.append(out)
-    encoderEndOut = models["encoderEnd"](
-        tf.reshape(encoderEndOuts, (batchSize, maxLen**2, dModel)), training=True
-    )
+
     decoderStartOuts = []
     for i in range(encoderLength // maxLen):
         decoderStartOuts.append(
