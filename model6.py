@@ -200,11 +200,11 @@ with open("./wordTokens.json", "r", -1, "utf-8") as f:
     tokens = json.loads("".join(f.readlines()))
 depth = len(num2word)
 maxLen = 8
-
-dModel = 1024
-dFF = 2048
+# params = 113,261,648
+dModel = 256
+dFF = 512
 layers = 16
-h = 16
+h = 8
 numRecur = 4
 models = useExtendedTransformer(
     dModel,
@@ -230,7 +230,7 @@ tf.keras.utils.plot_model(models["decoderStart"], "decoderStart.png", show_shape
 tf.keras.utils.plot_model(models["decoders"][0], "decoder.png", show_shapes=True)
 tf.keras.utils.plot_model(models["decoderEnd"], "decoderEnd.png", show_shapes=True)
 
-batchSize = 64 if toTrain else 1
+batchSize = 256 if toTrain else 1
 
 
 def predict():
@@ -322,7 +322,7 @@ def predict():
             decoderInput.append(result)
 
 
-encoderRecurrentCount = 4
+encoderRecurrentCount = 3
 encoderLength = maxLen**encoderRecurrentCount
 decoderLength = 256
 
