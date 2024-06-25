@@ -435,14 +435,14 @@ def train_step(optimizer, trainDatas):
             d = models["decoderEnd"](decodersOut[i], training=True)
             d = tf.keras.losses.sparse_categorical_crossentropy(ys[:, i], d)
         loss = tf.reduce_mean(d).numpy()
-        grad, nextGrad = tape.gradient(
+        grads, nextGrad = tape.gradient(
             d,
             (models["decoderEnd"].trainable_variables, decodersOut[i]),
             None,
             "zero",
         )
         decoderEndNextGrads.append(nextGrad)
-        decoderEndGrads = [gs + g for gs, g in zip(decoderEndGrads, grad)]
+        decoderEndGrads = [gs + g for gs, g in zip(decoderEndGrads, grads)]
     decodersGrads = [
         [tf.zeros_like(m) for m in models["decoders"][i].trainable_variables]
         for i in range(layers)
@@ -490,14 +490,41 @@ def train_step(optimizer, trainDatas):
                 ),
                 training=True,
             )
-        grad = tape.gradient(
+        grads = tape.gradient(
             d, models["decoderStart"].trainable_variables, decodersNextGrads[i], "zero"
         )
-        decoderStartGrads = [gs + g for gs, g in zip(decoderStartGrads, grad)]
+        decoderStartGrads = [gs + g for gs, g in zip(decoderStartGrads, grads)]
     encoderEndGrads = [
         tf.zeros_like(m) for m in models["encoderEnd"].trainable_variables
     ]
-    encoderEndNextGrads = []
+    with tf.GradientTape() as tape:
+        tape.watch(encoderEndOut)
+        d = models["encoderEnd"](
+            encoderEndOut[:, 0, :, :], training=True
+        )  # (B,maxLen,dModel)
+    grads, encoderEndNextGrads = tape.gradient(
+        d,
+        (models["encoderEnd"].trainable_variables, encoderEndOut),
+        encoderGrads,
+        "zero",
+    )
+    encoderEndGrads = [gs + g for gs, g in zip(encoderEndGrads, grads)]
+    for i in range(encoderRecurrentCount - 1):
+        newEncoderEndNextGrads = []
+        for j in range(maxLen**i):
+            with tf.GradientTape() as tape:
+                tape.watch(encoderEndOut)
+                d = models["encoderEnd"](
+                    encoderEndIns[i][maxLen**i - j - 1], training=True
+                )
+            grads, nextGrad = tape.gradient(
+                d,
+                [models["encoderEnd"].trainable_variables, encoderEndOut],
+                encoderEndNextGrads[i],
+            )
+            encoderEndGrads = [gs + g for gs, g in zip(encoderEndGrads, grads)]
+            newEncoderEndNextGrads.append(nextGrad)
+        encoderEndNextGrads = newEncoderEndNextGrads
 
     return loss
 
