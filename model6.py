@@ -334,7 +334,7 @@ def loader():
         input2 = []
         for _ in range(batchSize):
             startIndex = math.floor(
-                random.random() * (len(tokens) - (encoderLength + decoderLength + 1))
+                random.random() * (len(tokens) - (encoderLength + decoderLength * 2))
             )
             input.append(tokens[startIndex : startIndex + encoderLength])
             endIndex = startIndex + encoderLength
