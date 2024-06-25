@@ -354,7 +354,7 @@ def loader():
 
 def train_step(optimizer, trainDatas):
     positionalEncodingInput = positionalEncoding(maxLen, dModel)[tf.newaxis, :, :]
-    zeroState = np.array([[[0.0 for _ in range(dModel)] for _ in range(maxLen)]])
+    zeroState = tf.constant([[[0.0 for _ in range(dModel)] for _ in range(maxLen)]])
     data = next(trainDatas)
     xs = data[0]
     ex = xs[0]
@@ -443,7 +443,42 @@ def train_step(optimizer, trainDatas):
             "zero",
         )
         decoderEndNextGrads.append(nextGrad)
-        decoderEndGrads = [ds + d for ds, d in zip(decoderEndGrads, grad)]
+        decoderEndGrads = [gs + g for gs, g in zip(decoderEndGrads, grad)]
+    decodersGrads = [
+        [tf.zeros_like(m) for m in models["decoders"][i].trainable_variables]
+        for i in range(layers)
+    ]
+    decodersNextGrads = []
+    encoderGrads = 0
+    for i in range(decoderLength // maxLen):
+        with tf.GradientTape() as tape:
+            tape.watch(encoderEndOut)
+            decodersIn = decoderStartOuts[decoderLength // maxLen - i - 1][0]
+            tape.watch(decodersIn)
+            for j in range(layers):
+                d = models["decoders"][j](
+                    (
+                        decodersIn,
+                        decoderStartOuts[decoderLength // maxLen - i - 1][1],
+                        encoderEndOut,
+                        decodersStates[decoderLength // maxLen - i - 1][j],
+                    )
+                )
+                decodersIn = d
+        grads, nextGrad, eGrad = tape.gradient(
+            d,
+            (
+                [m.trainable_variables for m in models["decoders"]],
+                decodersIn,
+                encoderEndOut,
+            ),
+            decoderEndNextGrads[decoderLength // maxLen - i - 1],
+            "zero",
+        )
+        for j in range(layers):
+            decodersGrads[j] = [gs + g for gs, g in zip(decodersGrads[j], grads[j])]
+        encoderGrads += eGrad
+        decodersNextGrads.append(nextGrad)
     return loss
 
 
