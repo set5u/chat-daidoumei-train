@@ -497,21 +497,26 @@ def train_step(optimizer, trainDatas):
     encoderEndGrads = [
         tf.zeros_like(m) for m in models["encoderEnd"].trainable_variables
     ]
-    encoderEndNextGrads = [encoderGrads]
+    encoderEndNextGrads = [encoderGrads]  # (1,B,maxLen,dModel)
     for ii in range(encoderRecurrentCount):
         i = encoderRecurrentCount - ii - 1
-        for ij in range(maxLen**i):
-            j = maxLen**i - ij - 1
+        newEncoderEndNextGrads = []  # (numRecur,B,maxLen**2,dModel)
+        for j in range(maxLen**ii):
             with tf.GradientTape() as tape:
                 tape.watch(encoderEndIns[i][j])
                 e = models["encoderEnd"](encoderEndIns[i][j], training=True)
             grads, nextGrad = tape.gradient(
                 e,
                 (models["encoderEnd"].trainable_variables, encoderEndIns[i][j]),
-                encoderEndNextGrads,
+                encoderEndNextGrads[j],
                 "zero",
             )
+            newEncoderEndNextGrads.append(nextGrad)
             encoderEndGrads = [gs + g for gs, g in zip(encoderEndGrads, grads)]
+        encoderEndNextGrads = tf.transpose(
+            tf.reshape(newEncoderEndNextGrads, (batchSize, -1, maxLen, dModel)),
+            (1, 0, 2, 3),
+        )
 
     return loss
 
