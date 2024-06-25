@@ -583,14 +583,14 @@ def train_step(optimizer, trainDatas):
     return loss
 
 
-# models["encoderStart"].load_weights("./weights/encoderStart")
-# for i in range(layers):
-#     models["encoders"][i].load_weights("./weights/encoder" + str(i))
-# models["encoderEnd"].load_weights("./weights/encoderEnd")
-# models["decoderStart"].load_weights("./weights/decoderStart")
-# for i in range(layers):
-#     models["decoders"][i].load_weights("./weights/decoder" + str(i))
-# models["decoderEnd"].load_weights("./weights/decoderEnd")
+models["encoderStart"].load_weights("./weights/encoderStart")
+for i in range(layers):
+    models["encoders"][i].load_weights("./weights/encoder" + str(i))
+models["encoderEnd"].load_weights("./weights/encoderEnd")
+models["decoderStart"].load_weights("./weights/decoderStart")
+for i in range(layers):
+    models["decoders"][i].load_weights("./weights/decoder" + str(i))
+models["decoderEnd"].load_weights("./weights/decoderEnd")
 
 if toTrain:
     optimizer = tf.keras.optimizers.Adadelta(1.0)
