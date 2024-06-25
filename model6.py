@@ -201,10 +201,10 @@ with open("./wordTokens.json", "r", -1, "utf-8") as f:
 depth = len(num2word)
 maxLen = 8
 
-dModel = 16
-dFF = 32
-layers = 4
-h = 4
+dModel = 1024
+dFF = 2048
+layers = 16
+h = 16
 numRecur = 4
 models = useExtendedTransformer(
     dModel,
@@ -504,9 +504,9 @@ def train_step(optimizer, trainDatas):
         for j in range(maxLen**ii):
             with tf.GradientTape() as tape:
                 tape.watch(encoderEndIns[i][j])
-                e = models["encoderEnd"](encoderEndIns[i][j], training=True)
+                d = models["encoderEnd"](encoderEndIns[i][j], training=True)
             grads, nextGrad = tape.gradient(
-                e,
+                d,
                 (models["encoderEnd"].trainable_variables, encoderEndIns[i][j]),
                 encoderEndNextGrads[j],
                 "zero",
@@ -517,7 +517,69 @@ def train_step(optimizer, trainDatas):
             tf.reshape(newEncoderEndNextGrads, (batchSize, -1, maxLen, dModel)),
             (1, 0, 2, 3),
         )
-
+    encodersGrads = [
+        [tf.zeros_like(m) for m in models["encoders"][i].trainable_variables]
+        for i in range(layers)
+    ]
+    encodersNextGrads = []
+    for i in range(encoderLength // maxLen):
+        with tf.GradientTape() as tape:
+            tape.watch(encoderEndOut)
+            encodersIn = encoderStartOuts[encoderLength // maxLen - i - 1][0]
+            tape.watch(encodersIn)
+            for j in range(layers):
+                d = models["encoders"][j](
+                    (
+                        encodersIn,
+                        encoderStartOuts[encoderLength // maxLen - i - 1][1],
+                        encodersStates[encoderLength // maxLen - i - 1][j],
+                    )
+                )
+                encodersIn = d
+        grads, nextGrad = tape.gradient(
+            d,
+            (
+                [m.trainable_variables for m in models["encoders"]],
+                encodersIn,
+            ),
+            encoderEndNextGrads[encoderLength // maxLen - i - 1],
+            "zero",
+        )
+        for j in range(layers):
+            encodersGrads[j] = [gs + g for gs, g in zip(encodersGrads[j], grads[j])]
+        encodersNextGrads.append(nextGrad)
+    encoderStartGrads = [
+        tf.zeros_like(m) for m in models["encoderStart"].trainable_variables
+    ]
+    for i in range(encoderLength // maxLen):
+        with tf.GradientTape() as tape:
+            d, _ = models["encoderStart"](
+                (
+                    positionalEncodingInput,
+                    ex[:, i],
+                ),
+                training=True,
+            )
+        grads = tape.gradient(
+            d, models["encoderStart"].trainable_variables, encodersNextGrads[i], "zero"
+        )
+        encoderStartGrads = [gs + g for gs, g in zip(encoderStartGrads, grads)]
+    optimizer.apply_gradients(
+        zip(
+            encoderStartGrads
+            + sum(encodersGrads, [])
+            + encoderEndGrads
+            + decoderStartGrads
+            + sum(decodersGrads, [])
+            + decoderEndGrads,
+            models["encoderStart"].trainable_variables
+            + sum([m.trainable_variables for m in models["encoders"]], [])
+            + models["encoderEnd"].trainable_variables
+            + models["decoderStart"].trainable_variables
+            + sum([m.trainable_variables for m in models["decoders"]], [])
+            + models["decoderEnd"].trainable_variables,
+        )
+    )
     return loss
 
 
