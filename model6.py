@@ -385,7 +385,7 @@ def train_step(optimizer, trainDatas):
         (-1, encoderLength // (maxLen**2), maxLen**2, dModel),
     )  # (B,numRecur//maxLen,maxLen**2,dModel)
     encoderEndOut = encoderEndIn  # (B,numRecur//maxLen,maxLen**2,dModel)
-    encoderEndIns = []
+    encoderEndIns = []  # (numRecur,B,maxLen**2,dModel)[]
     for i in range(encoderRecurrentCount - 1):
         encoderEndIns.append([])
         temp = []  # (numRecur//maxLen,B,maxLen,dModel)
@@ -426,8 +426,7 @@ def train_step(optimizer, trainDatas):
             decodersStates[i].append(out)
     # back
     decoderEndGrads = [
-        tf.zeros_like(models["decoderEnd"].trainable_variables[i])
-        for i in range(len(models["decoderEnd"].trainable_variables))
+        tf.zeros_like(m) for m in models["decoderEnd"].trainable_variables
     ]
     decoderEndNextGrads = []
     for i in range(decoderLength // maxLen):
@@ -479,6 +478,27 @@ def train_step(optimizer, trainDatas):
             decodersGrads[j] = [gs + g for gs, g in zip(decodersGrads[j], grads[j])]
         encoderGrads += eGrad
         decodersNextGrads.append(nextGrad)
+    decoderStartGrads = [
+        tf.zeros_like(m) for m in models["decoderStart"].trainable_variables
+    ]
+    for i in range(decoderLength // maxLen):
+        with tf.GradientTape() as tape:
+            d = models["decoderStart"](
+                (
+                    positionalEncodingInput,
+                    dx[:, i],
+                ),
+                training=True,
+            )
+        grad = tape.gradient(
+            d, models["decoderStart"].trainable_variables, decodersNextGrads[i], "zero"
+        )
+        decoderStartGrads = [gs + g for gs, g in zip(decoderStartGrads, grad)]
+    encoderEndGrads = [
+        tf.zeros_like(m) for m in models["encoderEnd"].trainable_variables
+    ]
+    encoderEndNextGrads = []
+
     return loss
 
 
