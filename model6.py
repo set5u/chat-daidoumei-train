@@ -366,22 +366,20 @@ def train_step(optimizer, trainDatas):
         encoderStartOuts.append(
             models["encoderStart"]((positionalEncodingInput, ex[:, i]), training=True)
         )
-    encodersIns = []  # (numRecur,layers,B,maxLen,dModel)
+    encodersStates = [
+        [zeroState for _ in range(layers)]
+    ]  # (numRecur,layers,B,maxLen,dModel)
     encodersOut = [o[0] for o in encoderStartOuts]  # (numRecur,B,maxLen,dModel)
     encoderStates = [zeroState for _ in range(layers)]  # (layers,B,maxLen,dModel)
     for i in range(encoderLength // maxLen):
-        encodersIns.append([])
+        encodersStates.append([])
         for j in range(layers):
-            encodersIns[i].append(encodersOut[i])
-            encodersOut[i] = models["encoders"][j](
-                (
-                    encodersOut[i],
-                    encoderStartOuts[i][1][:, :, tf.newaxis],
-                    encoderStates[j],
-                ),
-                training=True,
+            out = models["encoders"][j](
+                (encodersOut[i], encoderStartOuts[i][1], encoderStates[j])
             )
-            encoderStates[j] = encodersOut[i]
+            encodersOut[i] = out
+            encoderStates[j] = out
+            encodersStates[i].append(out)
     encoderEndIn = tf.reshape(
         tf.transpose(encodersOut, (1, 0, 2, 3)),
         (-1, encoderLength // (maxLen**2), maxLen**2, dModel),
@@ -407,23 +405,46 @@ def train_step(optimizer, trainDatas):
         decoderStartOuts.append(
             models["decoderStart"]((positionalEncodingInput, dx[:, i]), training=True)
         )
-    decodersIns = []  # (numRecur,layers,B,maxLen,dModel)
+    decodersStates = [
+        [zeroState for _ in range(layers)]
+    ]  # (numRecur,layers,B,maxLen,dModel)
     decodersOut = [o[0] for o in decoderStartOuts]  # (numRecur,B,maxLen,dModel)
     decoderStates = [zeroState for _ in range(layers)]  # (layers,B,maxLen,dModel)
     for i in range(decoderLength // maxLen):
-        decodersIns.append([])
+        decodersStates.append([])
         for j in range(layers):
-            decodersIns[i].append(decodersOut[i])
-            decodersOut[i] = models["decoders"][j](
+            out = models["decoders"][j](
                 (
                     decodersOut[i],
-                    decoderStartOuts[i][1][:, :, tf.newaxis],
+                    decoderStartOuts[i][1],
                     encoderEndOut,
                     decoderStates[j],
-                ),
-                training=True,
+                )
             )
-            decoderStates[j] = decodersOut[i]
+            decodersOut[i] = out
+            decoderStates[j] = out
+            decodersStates[i].append(out)
+    # back
+    decoderEndGrads = [
+        tf.zeros_like(models["decoderEnd"].trainable_variables[i])
+        for i in range(len(models["decoderEnd"].trainable_variables))
+    ]
+    decoderEndNextGrads = []
+    for i in range(decoderLength // maxLen):
+        with tf.GradientTape() as tape:
+            tape.watch(decodersOut[i])
+            d = models["decoderEnd"](decodersOut[i], training=True)
+            d = tf.keras.losses.sparse_categorical_crossentropy(ys[:, i], d)
+        loss = tf.reduce_mean(d).numpy()
+        grad, nextGrad = tape.gradient(
+            d,
+            (models["decoderEnd"].trainable_variables, decodersOut[i]),
+            None,
+            "zero",
+        )
+        decoderEndNextGrads.append(nextGrad)
+        decoderEndGrads = [ds + d for ds, d in zip(decoderEndGrads, grad)]
+    return loss
 
 
 # models["encoderStart"].load_weights("./weights/encoderStart")
