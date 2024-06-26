@@ -14,8 +14,7 @@ toTrain = True
 dtype = "float32"
 
 
-def save(model):
-    weights = model.get_weights()
+def save(weights):
     ret = []
     for weight in weights:
         ret.append(json.dumps(weight.tolist()))
@@ -600,6 +599,9 @@ models["decoderEnd"].load_weights("./weights/decoderEnd")
 
 if toTrain:
     optimizer = tf.keras.optimizers.Adadelta(1.0)
+    with open("./weights/optimizer.jsonl") as f:
+        weights = load("".join(f.readlines()))
+    optimizer.set_weights(weights)
     trainDatas = loader()
     step = 0
     while True:
@@ -614,5 +616,7 @@ if toTrain:
             for i in range(layers):
                 models["decoders"][i].save_weights("./weights/decoder" + str(i))
             models["decoderEnd"].save_weights("./weights/decoderEnd")
+            with open("./weights/optimizer.jsonl", "w") as f:
+                f.write(save(optimizer.variables))
 else:
     predict()
