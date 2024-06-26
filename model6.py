@@ -356,6 +356,16 @@ def loader():
         ), np.array(output).reshape((batchSize, -1, 8))
 
 
+trainableVariables = (
+    models["encoderStart"].trainable_variables
+    + sum([m.trainable_variables for m in models["encoders"]], [])
+    + models["encoderEnd"].trainable_variables
+    + models["decoderStart"].trainable_variables
+    + sum([m.trainable_variables for m in models["decoders"]], [])
+    + models["decoderEnd"].trainable_variables
+)
+
+
 def train_step(optimizer, trainDatas):
     positionalEncodingInput = positionalEncoding(maxLen, dModel)[tf.newaxis, :, :]
     zeroState = tf.constant(
@@ -578,12 +588,7 @@ def train_step(optimizer, trainDatas):
             + decoderStartGrads
             + sum(decodersGrads, [])
             + decoderEndGrads,
-            models["encoderStart"].trainable_variables
-            + sum([m.trainable_variables for m in models["encoders"]], [])
-            + models["encoderEnd"].trainable_variables
-            + models["decoderStart"].trainable_variables
-            + sum([m.trainable_variables for m in models["decoders"]], [])
-            + models["decoderEnd"].trainable_variables,
+            trainableVariables,
         )
     )
     return loss
@@ -601,6 +606,9 @@ models["decoderEnd"].load_weights("./weights/decoderEnd")
 
 if toTrain:
     optimizer = tf.keras.optimizers.Adadelta(1.0)
+    optimizer.apply_gradients(
+        zip([tf.zeros_like(m) for m in trainableVariables], trainableVariables)
+    )
     with open("./weights/optimizer", "rb") as f:
         weights = pickle.load(f)
     optimizer.set_weights(weights)
