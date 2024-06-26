@@ -17,7 +17,7 @@ dtype = "float32"
 def save(weights):
     ret = []
     for weight in weights:
-        ret.append(json.dumps(weight.tolist()))
+        ret.append(json.dumps(weight.value().tolist()))
     return "\n".join(ret)
 
 
