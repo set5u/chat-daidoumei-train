@@ -594,6 +594,13 @@ def train_step(optimizer, trainDatas):
     return loss
 
 
+optimizer = tf.keras.optimizers.Adadelta(1.0)
+optimizer.apply_gradients(
+    zip([tf.zeros_like(m) for m in trainableVariables], trainableVariables)
+)
+with open("./weights/optimizer", "rb") as f:
+    weights = pickle.load(f)
+optimizer.set_weights(weights)
 models["encoderStart"].load_weights("./weights/encoderStart")
 for i in range(layers):
     models["encoders"][i].load_weights("./weights/encoder" + str(i))
@@ -605,13 +612,6 @@ models["decoderEnd"].load_weights("./weights/decoderEnd")
 
 
 if toTrain:
-    optimizer = tf.keras.optimizers.Adadelta(1.0)
-    optimizer.apply_gradients(
-        zip([tf.zeros_like(m) for m in trainableVariables], trainableVariables)
-    )
-    with open("./weights/optimizer", "rb") as f:
-        weights = pickle.load(f)
-    optimizer.set_weights(weights)
     trainDatas = loader()
     step = 0
     while True:
