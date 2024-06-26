@@ -599,13 +599,8 @@ for i in range(layers):
 models["decoderEnd"].load_weights("./weights/decoderEnd")
 
 
-def loadOptimizer(path):
-
-    return optimizer
-
-
 if toTrain:
-    optimizer = tf.keras.optimizers.Adam(amsgrad=True)
+    optimizer = tf.keras.optimizers.Adadelta(1.0)
     with open("./weights/optimizer", "rb") as f:
         weights = pickle.load(f)
     optimizer.set_weights(weights)
