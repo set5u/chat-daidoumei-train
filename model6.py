@@ -617,6 +617,6 @@ if toTrain:
                 models["decoders"][i].save_weights("./weights/decoder" + str(i))
             models["decoderEnd"].save_weights("./weights/decoderEnd")
             with open("./weights/optimizer.jsonl", "w") as f:
-                f.write(save(optimizer.variables))
+                f.write(save(optimizer.variables()))
 else:
     predict()
