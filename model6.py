@@ -605,7 +605,7 @@ def loadOptimizer(path):
 
 
 if toTrain:
-    optimizer = tf.keras.optimizers.Adadelta(1.0)
+    optimizer = tf.keras.optimizers.Adam(amsgrad=True)
     with open("./weights/optimizer", "rb") as f:
         weights = pickle.load(f)
     optimizer.set_weights(weights)
