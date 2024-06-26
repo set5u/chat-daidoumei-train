@@ -131,6 +131,6 @@ dist
 
 *.bin
 weight*.jsonl
-weights
+weights*
 graph
 memory_saving_gradients*

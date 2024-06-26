@@ -11,6 +11,8 @@ quantize_model = tfmot.quantization.keras.quantize_model
 # tf.keras.mixed_precision.set_global_policy(policy)
 toTrain = True
 
+dtype = "float32"
+
 
 def save(model):
     weights = model.get_weights()
@@ -31,7 +33,7 @@ def positionalEncoding(length, depth):
                 if j % 2
                 else math.cos(i / 10000 ** (j / depth))
             )
-    return tf.constant(ret, "float32")
+    return tf.constant(ret, dtype)
 
 
 def load(weights: str):
@@ -53,7 +55,7 @@ def useExtendedTransformer(
     depthTarget,
     layers,
 ):
-    positionalEncodingInput = tf.keras.Input((maxLen, dModel))
+    positionalEncodingInput = tf.keras.Input((maxLen, dModel), dtype=dtype)
     encoderInput = tf.keras.Input((maxLen,))
     encoderOnes = tf.keras.layers.Dense(
         units=maxLen,
@@ -76,7 +78,7 @@ def useExtendedTransformer(
     )
     encoders = []
     for i in range(layers):
-        encoderLayerInput = tf.keras.Input((maxLen, dModel))
+        encoderLayerInput = tf.keras.Input((maxLen, dModel), dtype=dtype)
         encoderMaskInput = tf.keras.Input((maxLen, 1))
         encoderMultiHeadAttention = tf.keras.layers.MultiHeadAttention(h, dModel)(
             encoderLayerInput, encoderLayerInput, attention_mask=encoderMaskInput
@@ -91,7 +93,7 @@ def useExtendedTransformer(
         encoderAdd1 = tf.keras.layers.Add()((encoderDense1, encoderDropout0))
         encoderNorm1 = tf.keras.layers.LayerNormalization()(encoderAdd1)
         encoderDropout1 = tf.keras.layers.Dropout(pDropout)(encoderNorm1)
-        encoderStateInput = tf.keras.Input((maxLen, dModel))
+        encoderStateInput = tf.keras.Input((maxLen, dModel), dtype=dtype)
         encoderAdd2 = tf.keras.layers.Add()((encoderStateInput, encoderDropout1))
         encoderNorm2 = tf.keras.layers.LayerNormalization()(encoderAdd2)
         encoderActivation = tf.keras.layers.Activation("tanh")(encoderNorm2)
@@ -102,7 +104,7 @@ def useExtendedTransformer(
                 encoderDropout2,
             )
         )
-    encoderEndInput = tf.keras.Input((maxLen**2, dModel))
+    encoderEndInput = tf.keras.Input((maxLen**2, dModel), dtype=dtype)
     encoderEndAttn = tf.keras.layers.MultiHeadAttention(h, dModel)(
         encoderEndInput, encoderEndInput
     )
@@ -136,8 +138,8 @@ def useExtendedTransformer(
     )
     decoders = []
     for i in range(layers):
-        decoderLayerInput = tf.keras.Input((maxLen, dModel))
-        decoderEncoderInput = tf.keras.Input((maxLen, dModel))
+        decoderLayerInput = tf.keras.Input((maxLen, dModel), dtype=dtype)
+        decoderEncoderInput = tf.keras.Input((maxLen, dModel), dtype=dtype)
         decoderMaskInput = tf.keras.Input((maxLen, 1))
         decoderMultiHeadAttention0 = tf.keras.layers.MultiHeadAttention(h, dModel)(
             decoderLayerInput,
@@ -163,7 +165,7 @@ def useExtendedTransformer(
         decoderAdd2 = tf.keras.layers.Add()((decoderDense1, decoderDropout1))
         decoderNorm2 = tf.keras.layers.LayerNormalization()(decoderAdd2)
         decoderDropout2 = tf.keras.layers.Dropout(pDropout)(decoderNorm2)
-        decoderStateInput = tf.keras.Input((maxLen, dModel))
+        decoderStateInput = tf.keras.Input((maxLen, dModel), dtype=dtype)
         decoderAdd3 = tf.keras.layers.Add()((decoderStateInput, decoderDropout2))
         decoderNorm3 = tf.keras.layers.LayerNormalization()(decoderAdd3)
         decoderActivation = tf.keras.layers.Activation("tanh")(decoderNorm3)
@@ -179,7 +181,7 @@ def useExtendedTransformer(
                 decoderDropout3,
             )
         )
-    decoderEndInput = tf.keras.Input((maxLen, dModel))
+    decoderEndInput = tf.keras.Input((maxLen, dModel), dtype=dtype)
     decoderEndDense = tf.keras.layers.Dense(depthTarget, "softmax")(decoderEndInput)
     decoderEnd = tf.keras.Model(decoderEndInput, decoderEndDense)
     return {
@@ -230,11 +232,13 @@ tf.keras.utils.plot_model(models["decoderStart"], "decoderStart.png", show_shape
 tf.keras.utils.plot_model(models["decoders"][0], "decoder.png", show_shapes=True)
 tf.keras.utils.plot_model(models["decoderEnd"], "decoderEnd.png", show_shapes=True)
 
-batchSize = 256 if toTrain else 1
+batchSize = 128 if toTrain else 1
 
 
 def predict():
-    zeroState = np.array([[[0.0 for _ in range(dModel)] for _ in range(maxLen)]])
+    zeroState = tf.constant(
+        [[[0.0 for _ in range(dModel)] for _ in range(maxLen)]], dtype=dtype
+    )
     states = [[]]
 
     encoderInput = []
@@ -354,7 +358,9 @@ def loader():
 
 def train_step(optimizer, trainDatas):
     positionalEncodingInput = positionalEncoding(maxLen, dModel)[tf.newaxis, :, :]
-    zeroState = tf.constant([[[0.0 for _ in range(dModel)] for _ in range(maxLen)]])
+    zeroState = tf.constant(
+        [[[0.0 for _ in range(dModel)] for _ in range(maxLen)]], dtype=dtype
+    )
     data = next(trainDatas)
     xs = data[0]
     ex = xs[0]
