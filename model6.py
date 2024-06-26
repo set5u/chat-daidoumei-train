@@ -1,4 +1,5 @@
 import json
+import pickle
 import tensorflow as tf
 import numpy as np
 import math
@@ -597,10 +598,16 @@ for i in range(layers):
     models["decoders"][i].load_weights("./weights/decoder" + str(i))
 models["decoderEnd"].load_weights("./weights/decoderEnd")
 
+
+def loadOptimizer(path):
+
+    return optimizer
+
+
 if toTrain:
     optimizer = tf.keras.optimizers.Adadelta(1.0)
-    with open("./weights/optimizer.jsonl") as f:
-        weights = load("".join(f.readlines()))
+    with open("./weights/optimizer", "rb") as f:
+        weights = pickle.load(f)
     optimizer.set_weights(weights)
     trainDatas = loader()
     step = 0
@@ -616,7 +623,8 @@ if toTrain:
             for i in range(layers):
                 models["decoders"][i].save_weights("./weights/decoder" + str(i))
             models["decoderEnd"].save_weights("./weights/decoderEnd")
-            with open("./weights/optimizer.jsonl", "w") as f:
-                f.write(save(optimizer.variables()))
+            weights = optimizer.get_weights()
+            with open("./weights/optimizer", "wb") as f:
+                pickle.dump(weights, f)
 else:
     predict()
