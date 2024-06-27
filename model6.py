@@ -235,24 +235,28 @@ funcs = {}
 
 
 funcs["encoderStart"] = tf.function(
-    lambda xs, **kwargs: models["encoderStart"](xs, **kwargs)
+    lambda xs, **kwargs: models["encoderStart"](xs, **kwargs), jit_compile=True
 )
 funcs["encoders"] = [
-    tf.function(lambda xs, **kwargs: models["encoders"][i](xs, **kwargs))
+    tf.function(
+        lambda xs, **kwargs: models["encoders"][i](xs, **kwargs), jit_compile=True
+    )
     for i in range(layers)
 ]
 funcs["encoderEnd"] = tf.function(
-    lambda xs, **kwargs: models["encoderEnd"](xs, **kwargs)
+    lambda xs, **kwargs: models["encoderEnd"](xs, **kwargs), jit_compile=True
 )
 funcs["decoderStart"] = tf.function(
-    lambda xs, **kwargs: models["decoderStart"](xs, **kwargs)
+    lambda xs, **kwargs: models["decoderStart"](xs, **kwargs), jit_compile=True
 )
 funcs["decoders"] = [
-    tf.function(lambda xs, **kwargs: models["decoders"][i](xs, **kwargs))
+    tf.function(
+        lambda xs, **kwargs: models["decoders"][i](xs, **kwargs), jit_compile=True
+    )
     for i in range(layers)
 ]
 funcs["decoderEnd"] = tf.function(
-    lambda xs, **kwargs: models["decoderEnd"](xs, **kwargs)
+    lambda xs, **kwargs: models["decoderEnd"](xs, **kwargs), jit_compile=True
 )
 
 
