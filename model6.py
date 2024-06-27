@@ -202,9 +202,9 @@ with open("./wordTokens.json", "r", -1, "utf-8") as f:
     tokens = json.loads("".join(f.readlines()))
 depth = len(num2word)
 maxLen = 8
-# params = 113,261,648
-dModel = 256
-dFF = 512
+# params = 482,405,712
+dModel = 512
+dFF = 2048
 layers = 16
 h = 8
 numRecur = 4
@@ -235,32 +235,44 @@ funcs = {}
 
 
 funcs["encoderStart"] = tf.function(
-    lambda xs, **kwargs: models["encoderStart"](xs, **kwargs), jit_compile=True
+    lambda xs, **kwargs: models["encoderStart"](xs, **kwargs),
+    jit_compile=True,
+    reduce_retracing=True,
 )
 funcs["encoders"] = [
     tf.function(
-        lambda xs, **kwargs: models["encoders"][i](xs, **kwargs), jit_compile=True
+        lambda xs, **kwargs: models["encoders"][i](xs, **kwargs),
+        jit_compile=True,
+        reduce_retracing=True,
     )
     for i in range(layers)
 ]
 funcs["encoderEnd"] = tf.function(
-    lambda xs, **kwargs: models["encoderEnd"](xs, **kwargs), jit_compile=True
+    lambda xs, **kwargs: models["encoderEnd"](xs, **kwargs),
+    jit_compile=True,
+    reduce_retracing=True,
 )
 funcs["decoderStart"] = tf.function(
-    lambda xs, **kwargs: models["decoderStart"](xs, **kwargs), jit_compile=True
+    lambda xs, **kwargs: models["decoderStart"](xs, **kwargs),
+    jit_compile=True,
+    reduce_retracing=True,
 )
 funcs["decoders"] = [
     tf.function(
-        lambda xs, **kwargs: models["decoders"][i](xs, **kwargs), jit_compile=True
+        lambda xs, **kwargs: models["decoders"][i](xs, **kwargs),
+        jit_compile=True,
+        reduce_retracing=True,
     )
     for i in range(layers)
 ]
 funcs["decoderEnd"] = tf.function(
-    lambda xs, **kwargs: models["decoderEnd"](xs, **kwargs), jit_compile=True
+    lambda xs, **kwargs: models["decoderEnd"](xs, **kwargs),
+    jit_compile=True,
+    reduce_retracing=True,
 )
 
 
-batchSize = 128 if toTrain else 1
+batchSize = 64 if toTrain else 1
 
 
 def predict():
