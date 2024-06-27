@@ -594,7 +594,7 @@ def train_step(optimizer, trainDatas):
     return loss
 
 
-optimizer = tf.keras.optimizers.Adadelta(1.0)
+optimizer = tf.keras.optimizers.Adadelta(10.0)
 optimizer.apply_gradients(
     zip([tf.zeros_like(m) for m in trainableVariables], trainableVariables)
 )
