@@ -234,52 +234,26 @@ tf.keras.utils.plot_model(models["decoderEnd"], "decoderEnd.png", show_shapes=Tr
 funcs = {}
 
 
-@tf.function
-def encoderStart(x, **kwargs):
-    return models["encoderStart"](x, **kwargs)
-
-
-funcs["encoderStart"] = encoderStart
-funcs["encoders"] = [0 for _ in range(layers)]
-for i in range(layers):
-
-    @tf.function
-    def encoders(x, **kwargs):
-        return models["encoders"][i](x, **kwargs)
-
-    funcs["encoders"][i] = encoders
-
-
-@tf.function
-def encoderEnd(x, **kwargs):
-    return models["encoderEnd"](x, **kwargs)
-
-
-funcs["encoderEnd"] = encoderEnd
-
-
-@tf.function
-def decoderStart(x, **kwargs):
-    return models["decoderStart"](x, **kwargs)
-
-
-funcs["decoderStart"] = decoderStart
-funcs["decoders"] = [0 for _ in range(layers)]
-for i in range(layers):
-
-    @tf.function
-    def decoders(x, **kwargs):
-        return models["decoders"][i](x, **kwargs)
-
-    funcs["decoders"][i] = decoders
-
-
-@tf.function
-def decoderEnd(x, **kwargs):
-    return models["decoderEnd"](x, **kwargs)
-
-
-funcs["decoderEnd"] = decoderEnd
+funcs["encoderStart"] = tf.function(
+    lambda xs, **kwargs: models["encoderStart"](xs, **kwargs)
+)
+funcs["encoders"] = [
+    tf.function(lambda xs, **kwargs: models["encoders"][i](xs, **kwargs))
+    for i in range(layers)
+]
+funcs["encoderEnd"] = tf.function(
+    lambda xs, **kwargs: models["encoderEnd"](xs, **kwargs)
+)
+funcs["decoderStart"] = tf.function(
+    lambda xs, **kwargs: models["decoderStart"](xs, **kwargs)
+)
+funcs["decoders"] = [
+    tf.function(lambda xs, **kwargs: models["decoders"][i](xs, **kwargs))
+    for i in range(layers)
+]
+funcs["decoderEnd"] = tf.function(
+    lambda xs, **kwargs: models["decoderEnd"](xs, **kwargs)
+)
 
 
 batchSize = 128 if toTrain else 1
