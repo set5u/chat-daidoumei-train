@@ -92,6 +92,13 @@ def useExtendedBERT(
     layerModel = tf.keras.Model(
         (layersInput, layersMaskInput, layersStateInput), lastInput
     )
+    bridgeInput = tf.keras.Input((maxLen**2, dModel))
+    bridgePermute0 = tf.keras.layers.Permute((2, 1))(bridgeInput)
+    bridgeConv0 = tf.keras.layers.Conv1D(maxLen, 1)(bridgePermute0)
+    bridgeDense = tf.keras.layers.EinsumDense("abc,bcde->ade", (maxLen, dModel))(
+        bridgeConv0
+    )
+    bridgeModel = tf.keras.Model(bridgeInput, bridgeDense)
     collectorInput = tf.keras.Input((maxLen**2, dModel))
     collectorPositionalEncodingInput = tf.keras.Input((maxLen**2, dModel))
     collectorPositionalEncoding = tf.keras.layers.Add()(
@@ -122,13 +129,12 @@ def useExtendedBERT(
     convInput = tf.keras.Input((maxLen**2, dModel))
     permute0 = tf.keras.layers.Permute((2, 1))(convInput)
     conv = tf.keras.layers.Conv1D(maxLen, 1)(permute0)
-    permute1 = tf.keras.layers.Permute((2, 1))(conv)
-    convDense = tf.keras.layers.EinsumDense("abc,bcde->ade", (maxLen, dModel))(permute1)
+    convDense = tf.keras.layers.EinsumDense("abc,bcde->ade", (maxLen, dModel))(conv)
     convModel = tf.keras.Model(convInput, convDense)
     outInput = tf.keras.Input((maxLen**2, dModel))
     outDense = tf.keras.layers.Dense(depthOutput, "softmax")(outInput)
     outModel = tf.keras.Model(outInput, outDense)
-    return start, layerModel, convModel, collectorModel, outModel
+    return start, layerModel, bridgeModel, convModel, collectorModel, outModel
 
 
 with open("./num2word.json", "r", -1, "utf-8") as f:
@@ -160,17 +166,20 @@ models[1].summary()
 models[2].summary()
 models[3].summary()
 models[4].summary()
+models[5].summary()
 tf.keras.utils.plot_model(models[0], "start.png", show_shapes=True)
 tf.keras.utils.plot_model(models[1], "attn.png", show_shapes=True)
-tf.keras.utils.plot_model(models[2], "conv.png", show_shapes=True)
-tf.keras.utils.plot_model(models[3], "collector.png", show_shapes=True)
-tf.keras.utils.plot_model(models[4], "out.png", show_shapes=True)
+tf.keras.utils.plot_model(models[2], "bridge.png", show_shapes=True)
+tf.keras.utils.plot_model(models[3], "conv.png", show_shapes=True)
+tf.keras.utils.plot_model(models[4], "collector.png", show_shapes=True)
+tf.keras.utils.plot_model(models[5], "out.png", show_shapes=True)
 funcs = []
-funcs.append(tf.function(lambda x, **kwargs: models[0](x, **kwargs)))
-funcs.append(tf.function(lambda x, **kwargs: models[1](x, **kwargs)))
-funcs.append(tf.function(lambda x, **kwargs: models[2](x, **kwargs)))
-funcs.append(tf.function(lambda x, **kwargs: models[3](x, **kwargs)))
-funcs.append(tf.function(lambda x, **kwargs: models[4](x, **kwargs)))
+funcs.append(tf.function(lambda x, **kwargs: models[0](x, **kwargs), jit_compile=True))
+funcs.append(tf.function(lambda x, **kwargs: models[1](x, **kwargs), jit_compile=True))
+funcs.append(tf.function(lambda x, **kwargs: models[2](x, **kwargs), jit_compile=True))
+funcs.append(tf.function(lambda x, **kwargs: models[3](x, **kwargs), jit_compile=True))
+funcs.append(tf.function(lambda x, **kwargs: models[4](x, **kwargs), jit_compile=True))
+funcs.append(tf.function(lambda x, **kwargs: models[5](x, **kwargs), jit_compile=True))
 
 
 batchSize = 64 if toTrain else 1
