@@ -303,7 +303,7 @@ funcs["decoderEnd"] = tf.function(
 )
 
 
-batchSize = 128 if toTrain else 1
+batchSize = 64 if toTrain else 1
 
 
 def predict():
