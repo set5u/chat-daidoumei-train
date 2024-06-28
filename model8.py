@@ -53,18 +53,18 @@ def useExtendedBERT(
         (positionalEncodingInput, input),
         (positionalEncoding, attentionMask),
     )
-    outLayers = []
+    layersInput = tf.keras.Input((maxLen**2, dModel))
+    layersMaskInput = tf.keras.Input((maxLen**2,))
+    layersStateInput = tf.keras.Input((maxLen**2, dModel))
+    lastInput = layersInput
     for _ in range(layers):
-        layersInput = tf.keras.Input((maxLen**2, dModel))
-        layersMaskInput = tf.keras.Input((maxLen**2,))
-        layersStateInput = tf.keras.Input((maxLen**2, dModel))
         attn0 = tf.keras.layers.MultiHeadAttention(h, dModel // h)(
-            layersInput,
-            layersInput,
+            lastInput,
+            lastInput,
             attention_mask=layersMaskInput,
             use_causal_mask=True,
         )
-        add0 = tf.keras.layers.Add()([attn0, layersInput])
+        add0 = tf.keras.layers.Add()([attn0, lastInput])
         norm0 = tf.keras.layers.LayerNormalization()(add0)
         dropout0 = tf.keras.layers.Dropout(pDropout)(norm0)
         attn1 = tf.keras.layers.MultiHeadAttention(h, dModel // h)(
@@ -85,9 +85,11 @@ def useExtendedBERT(
         add2 = tf.keras.layers.Add()([dense1, dropout1])
         norm2 = tf.keras.layers.LayerNormalization()(add2)
         dropout2 = tf.keras.layers.Dropout(pDropout)(norm2)
-        outLayers.append(
-            tf.keras.Model((layersInput, layersMaskInput, layersStateInput), dropout2)
-        )
+        lastInput = dropout2
+    layerModel = tf.keras.Model(
+        (layersInput, layersMaskInput, layersStateInput), lastInput
+    )
+
     convInput = tf.keras.Input((maxLen**2, dModel))
     permute0 = tf.keras.layers.Permute((2, 1))(convInput)
     conv = tf.keras.layers.Conv1D(maxLen, 1)(permute0)
@@ -97,7 +99,7 @@ def useExtendedBERT(
     outInput = tf.keras.Input((maxLen**2, dModel))
     outDense = tf.keras.layers.Dense(depthOutput, "softmax")(outInput)
     outModel = tf.keras.Model(outInput, outDense)
-    return start, outLayers, convModel, outModel
+    return start, layerModel, convModel, outModel
 
 
 with open("./num2word.json", "r", -1, "utf-8") as f:
@@ -125,16 +127,16 @@ models = useExtendedBERT(
     layers,
 )
 models[0].summary()
-models[1][0].summary()
+models[1].summary()
 models[2].summary()
 models[3].summary()
 tf.keras.utils.plot_model(models[0], "start.png", show_shapes=True)
-tf.keras.utils.plot_model(models[1][0], "attn.png", show_shapes=True)
+tf.keras.utils.plot_model(models[1], "attn.png", show_shapes=True)
 tf.keras.utils.plot_model(models[2], "conv.png", show_shapes=True)
 tf.keras.utils.plot_model(models[3], "out.png", show_shapes=True)
 funcs = []
 funcs.append(tf.function(lambda x, **kwargs: models[0](x, **kwargs)))
-funcs.append([tf.function(lambda x, **kwargs: m(x, **kwargs)) for m in models[1]])
+funcs.append(tf.function(lambda x, **kwargs: models[1](x, **kwargs)))
 funcs.append(tf.function(lambda x, **kwargs: models[2](x, **kwargs)))
 funcs.append(tf.function(lambda x, **kwargs: models[3](x, **kwargs)))
 
