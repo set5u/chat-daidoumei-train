@@ -232,7 +232,6 @@ dModel = 256
 dFF = 512
 layers = 16
 h = 8
-numRecur = 4
 models = useExtendedTransformer(
     dModel,
     dFF,
