@@ -99,14 +99,25 @@ def useExtendedTransformer(
         encoderNorm1 = tf.keras.layers.LayerNormalization()(encoderAdd1)
         encoderDropout1 = tf.keras.layers.Dropout(pDropout)(encoderNorm1)
         encoderStateInput = tf.keras.Input((maxLen, dModel), dtype=dtype)
-        encoderMean2 = tf.keras.layers.Average()((encoderStateInput, encoderDropout1))
-        encoderNorm2 = tf.keras.layers.LayerNormalization()(encoderMean2)
+        encoderMerge = tf.keras.layers.MultiHeadAttention(h, dModel)(
+            encoderStateInput, encoderDropout1, attention_mask=encoderMaskInput
+        )
+        encoderNorm2 = tf.keras.layers.LayerNormalization()(encoderMerge)
         encoderActivation = tf.keras.layers.Activation("tanh")(encoderNorm2)
         encoderDropout2 = tf.keras.layers.Dropout(pDropout)(encoderActivation)
+        encoderDense2 = tf.keras.layers.EinsumDense(
+            "abc,bcd->acd", (dModel, dFF), "relu"
+        )(encoderDropout2)
+        encoderDense3 = tf.keras.layers.EinsumDense(
+            "acd,bcd->abc", (maxLen, dModel), "linear"
+        )(encoderDense2)
+        encoderAdd2 = tf.keras.layers.Add()((encoderDense3, encoderDropout2))
+        encoderNorm3 = tf.keras.layers.LayerNormalization()(encoderAdd2)
+        encoderDropout3 = tf.keras.layers.Dropout(pDropout)(encoderNorm3)
         encoders.append(
             tf.keras.Model(
                 (encoderLayerInput, encoderMaskInput, encoderStateInput),
-                encoderDropout2,
+                (encoderDropout2, encoderDropout3),
             )
         )
     encoderEndInput = tf.keras.Input((maxLen**2, dModel), dtype=dtype)
@@ -175,10 +186,21 @@ def useExtendedTransformer(
         decoderNorm2 = tf.keras.layers.LayerNormalization()(decoderAdd2)
         decoderDropout2 = tf.keras.layers.Dropout(pDropout)(decoderNorm2)
         decoderStateInput = tf.keras.Input((maxLen, dModel), dtype=dtype)
-        decoderMean3 = tf.keras.layers.Average()((decoderStateInput, decoderDropout2))
-        decoderNorm3 = tf.keras.layers.LayerNormalization()(decoderMean3)
+        decoderMerge = tf.keras.layers.MultiHeadAttention(h, dModel)(
+            decoderStateInput, decoderDropout2, attention_mask=decoderMaskInput
+        )
+        decoderNorm3 = tf.keras.layers.LayerNormalization()(decoderMerge)
         decoderActivation = tf.keras.layers.Activation("tanh")(decoderNorm3)
         decoderDropout3 = tf.keras.layers.Dropout(pDropout)(decoderActivation)
+        decoderDense2 = tf.keras.layers.EinsumDense(
+            "abc,bcd->acd", (dModel, dFF), "relu"
+        )(decoderDropout3)
+        decoderDense3 = tf.keras.layers.EinsumDense(
+            "acd,bcd->abc", (maxLen, dModel), "linear"
+        )(decoderDense2)
+        decoderAdd3 = tf.keras.layers.Add()((decoderDense3, decoderDropout3))
+        decoderNorm4 = tf.keras.layers.LayerNormalization()(decoderAdd3)
+        decoderDropout4 = tf.keras.layers.Dropout(pDropout)(decoderNorm4)
         decoders.append(
             tf.keras.Model(
                 (
@@ -187,7 +209,7 @@ def useExtendedTransformer(
                     decoderEncoderInput,
                     decoderStateInput,
                 ),
-                decoderDropout3,
+                (decoderDropout3, decoderDropout4),
             )
         )
     decoderEndInput = tf.keras.Input((maxLen, dModel), dtype=dtype)
@@ -281,7 +303,7 @@ funcs["decoderEnd"] = tf.function(
 )
 
 
-batchSize = 256 if toTrain else 1
+batchSize = 128 if toTrain else 1
 
 
 def predict():
@@ -305,11 +327,11 @@ def predict():
                 )
             )
             for i, state in enumerate(encoderStates):
-                e = funcs["encoders"][i]((e, eMask[:, :, tf.newaxis], state))
+                e, es = funcs["encoders"][i]((e, eMask[:, :, tf.newaxis], state))
                 if len(encoderInput) > maxLen:
                     encoderInput = encoderInput[maxLen:]
-                    encoderStates[i] = e[:, ::-1]
-            states[0].append(e[:, ::-1])
+                    encoderStates[i] = es
+            states[0].append(es)
             for i, state in enumerate(states):
                 if len(state) == maxLen:
                     if len(states) == i + 1:
@@ -320,7 +342,7 @@ def predict():
                                 tf.transpose(state, (1, 0, 2, 3)),
                                 (1, maxLen**2, dModel),
                             )
-                        )[:, ::-1]
+                        )
                     )
                     states[i] = []
             currentState = zeroState
@@ -332,7 +354,7 @@ def predict():
                             (1, 0, 2, 3),
                         ),
                         (1, maxLen**2, dModel),
-                    )[:, ::-1]
+                    )
                 )
             once = False
         decoderInput = []
@@ -345,13 +367,13 @@ def predict():
                 )
             )
             for i, state in enumerate(decoderStates):
-                d = funcs["decoders"][i](
+                d, ds = funcs["decoders"][i](
                     (d, dMask[:, :, tf.newaxis], currentState, state)
                 )
                 if len(decoderInput) == maxLen:
                     decoderInput = []
-                    decoderStates[i] = d[:, ::-1]
-            decoderOut = funcs["decoderEnd"](d[:, ::-1])
+                    decoderStates[i] = ds
+            decoderOut = funcs["decoderEnd"](d)
             decoderSorted = tf.argsort(decoderOut[0][(len(decoderInput) + 1) % maxLen])
             results = []
             sum = 0
@@ -439,7 +461,7 @@ def decodersBack(
         decodersIn = decoderStartOuts[decoderLength // maxLen - i - 1][0]
         tape.watch(decodersIn)
         for j in range(layers):
-            d = funcs["decoders"][j](
+            d, _ = funcs["decoders"][j](
                 (
                     decodersIn,
                     decoderStartOuts[decoderLength // maxLen - i - 1][1],
@@ -497,7 +519,7 @@ def encodersBack(
         encodersIn = encoderStartOuts[encoderLength // maxLen - i - 1][0]
         tape.watch(encodersIn)
         for j in range(layers):
-            d = funcs["encoders"][j](
+            d, _ = funcs["encoders"][j](
                 (
                     encodersIn,
                     encoderStartOuts[encoderLength // maxLen - i - 1][1],
@@ -534,7 +556,11 @@ def encoderStartBack(positionalEncodingInput, encodersNextGrads, ex, i):
 def train_step(optimizer, data):
     positionalEncodingInput = positionalEncoding(maxLen, dModel)[tf.newaxis, :, :]
     zeroState = tf.constant(
-        [[[0.0 for _ in range(dModel)] for _ in range(maxLen)]], dtype=dtype
+        [
+            [[0.0 for _ in range(dModel)] for _ in range(maxLen)]
+            for _ in range(batchSize)
+        ],
+        dtype=dtype,
     )
     xs = data[0]
     ex = xs[0]
@@ -554,12 +580,12 @@ def train_step(optimizer, data):
     for i in range(encoderLength // maxLen):
         encodersStates.append([])
         for j in range(layers):
-            out = funcs["encoders"][j](
+            out, outs = funcs["encoders"][j](
                 (encodersOut[i], encoderStartOuts[i][1], encoderStates[j])
             )
             encodersOut[i] = out
-            encoderStates[j] = out[:, ::-1]
-            encodersStates[i].append(out[:, ::-1])
+            encoderStates[j] = outs
+            encodersStates[i].append(outs)
     encoderEndIn = tf.reshape(
         tf.transpose(encodersOut, (1, 0, 2, 3)),
         (-1, encoderLength // (maxLen**2), maxLen**2, dModel),
@@ -593,7 +619,7 @@ def train_step(optimizer, data):
     for i in range(decoderLength // maxLen):
         decodersStates.append([])
         for j in range(layers):
-            out = funcs["decoders"][j](
+            out, outs = funcs["decoders"][j](
                 (
                     decodersOut[i],
                     decoderStartOuts[i][1],
@@ -602,8 +628,8 @@ def train_step(optimizer, data):
                 )
             )
             decodersOut[i] = out
-            decoderStates[j] = out[:, ::-1]
-            decodersStates[i].append(out[:, ::-1])
+            decoderStates[j] = outs
+            decodersStates[i].append(outs)
     # back
     decoderEndGrads = [
         tf.zeros_like(m) for m in models["decoderEnd"].trainable_variables
