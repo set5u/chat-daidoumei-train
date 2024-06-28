@@ -48,7 +48,10 @@ def useExtendedBERT(
         output_dim=dModel,
         mask_zero=True,
     )(input)
-    positionalEncoding = tf.keras.layers.Add()((embedding, positionalEncodingInput))
+    embeddingScale = tf.keras.layers.Multiply()((embedding, tf.constant([dModel**0.5])))
+    positionalEncoding = tf.keras.layers.Add()(
+        (embeddingScale, positionalEncodingInput)
+    )
     start = tf.keras.Model(
         (positionalEncodingInput, input),
         (positionalEncoding, attentionMask),
@@ -90,7 +93,11 @@ def useExtendedBERT(
         (layersInput, layersMaskInput, layersStateInput), lastInput
     )
     collectorInput = tf.keras.Input((maxLen**2, dModel))
-    lastInput = collectorInput
+    collectorPositionalEncodingInput = tf.keras.Input((maxLen**2, dModel))
+    collectorPositionalEncoding = tf.keras.layers.Add()(
+        (collectorInput, collectorPositionalEncodingInput)
+    )
+    lastInput = collectorPositionalEncoding
     for _ in range(layers):
         attn0 = tf.keras.layers.MultiHeadAttention(h, dModel // h)(
             lastInput,
@@ -109,7 +116,9 @@ def useExtendedBERT(
         norm2 = tf.keras.layers.LayerNormalization()(add2)
         dropout2 = tf.keras.layers.Dropout(pDropout)(norm2)
         lastInput = dropout2
-    collectorModel = tf.keras.Model(collectorInput, lastInput)
+    collectorModel = tf.keras.Model(
+        (collectorInput, collectorPositionalEncodingInput), lastInput
+    )
     convInput = tf.keras.Input((maxLen**2, dModel))
     permute0 = tf.keras.layers.Permute((2, 1))(convInput)
     conv = tf.keras.layers.Conv1D(maxLen, 1)(permute0)
@@ -130,7 +139,7 @@ with open("./wordTokens.json", "r", -1, "utf-8") as f:
     tokens = json.loads("".join(f.readlines()))
 depth = len(num2word)
 maxLen = 8
-# params = 282,223,480
+# params =
 dModel = 256
 dFF = 512
 layers = 16
