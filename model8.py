@@ -59,7 +59,10 @@ def useExtendedBERT(
         layersMaskInput = tf.keras.Input((maxLen**2,))
         layersStateInput = tf.keras.Input((maxLen**2, dModel))
         attn0 = tf.keras.layers.MultiHeadAttention(h, dModel // h)(
-            layersInput, attention_mask=layersMaskInput, use_causal_mask=True
+            layersInput,
+            layersInput,
+            attention_mask=layersMaskInput,
+            use_causal_mask=True,
         )
         add0 = tf.keras.layers.Add()([attn0, layersInput])
         norm0 = tf.keras.layers.LayerNormalization()(add0)
@@ -91,7 +94,7 @@ def useExtendedBERT(
     permute1 = tf.keras.layers.Permute((2, 1))(conv)
     convModel = tf.keras.Model(convInput, permute1)
     outInput = tf.keras.Input((maxLen**2, dModel))
-    outDense = tf.keras.layers.Dense(depthOutput, "softmax")
+    outDense = tf.keras.layers.Dense(depthOutput, "softmax")(outInput)
     outModel = tf.keras.Model(outInput, outDense)
     return start, outLayers, convModel, outModel
 
@@ -120,6 +123,14 @@ models = useExtendedBERT(
     depth,
     layers,
 )
+models[0].summary()
+models[1][0].summary()
+models[2].summary()
+models[3].summary()
+tf.keras.utils.plot_model(models[0], "start.png", show_shapes=True)
+tf.keras.utils.plot_model(models[1][0], "attn.png", show_shapes=True)
+tf.keras.utils.plot_model(models[2], "conv.png", show_shapes=True)
+tf.keras.utils.plot_model(models[3], "out.png", show_shapes=True)
 funcs = []
 funcs.append(tf.function(lambda x, **kwargs: models[0](x, **kwargs)))
 funcs.append([tf.function(lambda x, **kwargs: m(x, **kwargs)) for m in models[1]])
