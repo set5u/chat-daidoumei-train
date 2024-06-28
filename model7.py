@@ -106,10 +106,10 @@ def useExtendedTransformer(
         encoderActivation = tf.keras.layers.Activation("tanh")(encoderNorm2)
         encoderDropout2 = tf.keras.layers.Dropout(pDropout)(encoderActivation)
         encoderDense2 = tf.keras.layers.EinsumDense(
-            "abc,bcd->acd", (dModel, dFF), "relu"
+            "abc,bcde->aed", (maxLen, dFF), "relu"
         )(encoderDropout2)
         encoderDense3 = tf.keras.layers.EinsumDense(
-            "acd,bcd->abc", (maxLen, dModel), "linear"
+            "aed,bcde->abc", (maxLen, dModel), "linear"
         )(encoderDense2)
         encoderAdd2 = tf.keras.layers.Add()((encoderDense3, encoderDropout2))
         encoderNorm3 = tf.keras.layers.LayerNormalization()(encoderAdd2)
@@ -193,10 +193,10 @@ def useExtendedTransformer(
         decoderActivation = tf.keras.layers.Activation("tanh")(decoderNorm3)
         decoderDropout3 = tf.keras.layers.Dropout(pDropout)(decoderActivation)
         decoderDense2 = tf.keras.layers.EinsumDense(
-            "abc,bcd->acd", (dModel, dFF), "relu"
+            "abc,bcde->aed", (maxLen, dFF), "relu"
         )(decoderDropout3)
         decoderDense3 = tf.keras.layers.EinsumDense(
-            "acd,bcd->abc", (maxLen, dModel), "linear"
+            "aed,bcde->abc", (maxLen, dModel), "linear"
         )(decoderDense2)
         decoderAdd3 = tf.keras.layers.Add()((decoderDense3, decoderDropout3))
         decoderNorm4 = tf.keras.layers.LayerNormalization()(decoderAdd3)
