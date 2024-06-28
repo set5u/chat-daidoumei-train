@@ -89,7 +89,27 @@ def useExtendedBERT(
     layerModel = tf.keras.Model(
         (layersInput, layersMaskInput, layersStateInput), lastInput
     )
-
+    collectorInput = tf.keras.Input((maxLen**2, dModel))
+    lastInput = collectorInput
+    for _ in range(layers):
+        attn0 = tf.keras.layers.MultiHeadAttention(h, dModel // h)(
+            lastInput,
+            lastInput,
+        )
+        add0 = tf.keras.layers.Add()([attn0, lastInput])
+        norm0 = tf.keras.layers.LayerNormalization()(add0)
+        dropout0 = tf.keras.layers.Dropout(pDropout)(norm0)
+        dense0 = tf.keras.layers.EinsumDense(
+            "abc,bcd->abd", (maxLen**2, dFF), "relu"
+        )(dropout0)
+        dense1 = tf.keras.layers.EinsumDense("abd,bcd->abc", (maxLen**2, dModel))(
+            dense0
+        )
+        add2 = tf.keras.layers.Add()([dense1, dropout0])
+        norm2 = tf.keras.layers.LayerNormalization()(add2)
+        dropout2 = tf.keras.layers.Dropout(pDropout)(norm2)
+        lastInput = dropout2
+    collectorModel = tf.keras.Model(collectorInput, lastInput)
     convInput = tf.keras.Input((maxLen**2, dModel))
     permute0 = tf.keras.layers.Permute((2, 1))(convInput)
     conv = tf.keras.layers.Conv1D(maxLen, 1)(permute0)
@@ -99,7 +119,7 @@ def useExtendedBERT(
     outInput = tf.keras.Input((maxLen**2, dModel))
     outDense = tf.keras.layers.Dense(depthOutput, "softmax")(outInput)
     outModel = tf.keras.Model(outInput, outDense)
-    return start, layerModel, convModel, outModel
+    return start, layerModel, convModel, collectorModel, outModel
 
 
 with open("./num2word.json", "r", -1, "utf-8") as f:
@@ -130,15 +150,18 @@ models[0].summary()
 models[1].summary()
 models[2].summary()
 models[3].summary()
+models[4].summary()
 tf.keras.utils.plot_model(models[0], "start.png", show_shapes=True)
 tf.keras.utils.plot_model(models[1], "attn.png", show_shapes=True)
 tf.keras.utils.plot_model(models[2], "conv.png", show_shapes=True)
-tf.keras.utils.plot_model(models[3], "out.png", show_shapes=True)
+tf.keras.utils.plot_model(models[3], "collector.png", show_shapes=True)
+tf.keras.utils.plot_model(models[4], "out.png", show_shapes=True)
 funcs = []
 funcs.append(tf.function(lambda x, **kwargs: models[0](x, **kwargs)))
 funcs.append(tf.function(lambda x, **kwargs: models[1](x, **kwargs)))
 funcs.append(tf.function(lambda x, **kwargs: models[2](x, **kwargs)))
 funcs.append(tf.function(lambda x, **kwargs: models[3](x, **kwargs)))
+funcs.append(tf.function(lambda x, **kwargs: models[4](x, **kwargs)))
 
 
 batchSize = 64 if toTrain else 1
