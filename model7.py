@@ -105,13 +105,10 @@ def useExtendedTransformer(
         encoderNorm2 = tf.keras.layers.LayerNormalization()(encoderMerge)
         encoderActivation = tf.keras.layers.Activation("tanh")(encoderNorm2)
         encoderDropout2 = tf.keras.layers.Dropout(pDropout)(encoderActivation)
-        encoderDense2 = tf.keras.layers.EinsumDense(
-            "abc,bcde->aed", (maxLen, dFF), "relu"
-        )(encoderDropout2)
-        encoderDense3 = tf.keras.layers.EinsumDense(
-            "aed,bcde->abc", (maxLen, dModel), "linear"
-        )(encoderDense2)
-        encoderAdd2 = tf.keras.layers.Add()((encoderDense3, encoderDropout2))
+        encoderPermute0 = tf.keras.layers.Permute((2, 1))(encoderDropout2)
+        encoderConv = tf.keras.layers.Conv1D(maxLen, 1)(encoderPermute0)
+        encoderPermute1 = tf.keras.layers.Permute((2, 1))(encoderConv)
+        encoderAdd2 = tf.keras.layers.Add()((encoderPermute1, encoderDropout2))
         encoderNorm3 = tf.keras.layers.LayerNormalization()(encoderAdd2)
         encoderDropout3 = tf.keras.layers.Dropout(pDropout)(encoderNorm3)
         encoders.append(
@@ -192,13 +189,10 @@ def useExtendedTransformer(
         decoderNorm3 = tf.keras.layers.LayerNormalization()(decoderMerge)
         decoderActivation = tf.keras.layers.Activation("tanh")(decoderNorm3)
         decoderDropout3 = tf.keras.layers.Dropout(pDropout)(decoderActivation)
-        decoderDense2 = tf.keras.layers.EinsumDense(
-            "abc,bcde->aed", (maxLen, dFF), "relu"
-        )(decoderDropout3)
-        decoderDense3 = tf.keras.layers.EinsumDense(
-            "aed,bcde->abc", (maxLen, dModel), "linear"
-        )(decoderDense2)
-        decoderAdd3 = tf.keras.layers.Add()((decoderDense3, decoderDropout3))
+        decoderPermute0 = tf.keras.layers.Permute((2, 1))(decoderDropout3)
+        decoderConv = tf.keras.layers.Conv1D(maxLen, 1)(decoderPermute0)
+        decoderPermute1 = tf.keras.layers.Permute((2, 1))(decoderConv)
+        decoderAdd3 = tf.keras.layers.Add()((decoderPermute1, decoderDropout3))
         decoderNorm4 = tf.keras.layers.LayerNormalization()(decoderAdd3)
         decoderDropout4 = tf.keras.layers.Dropout(pDropout)(decoderNorm4)
         decoders.append(
@@ -233,7 +227,7 @@ with open("./wordTokens.json", "r", -1, "utf-8") as f:
     tokens = json.loads("".join(f.readlines()))
 depth = len(num2word)
 maxLen = 8
-# params = 171,957,328
+# params =
 dModel = 256
 dFF = 512
 layers = 16
@@ -709,20 +703,20 @@ def train_step(optimizer, data):
 
 
 optimizer = tf.keras.optimizers.Adadelta(1.0)
-optimizer.apply_gradients(
-    zip([tf.zeros_like(m) for m in trainableVariables], trainableVariables)
-)
-with open("./weights/optimizer", "rb") as f:
-    weights = pickle.load(f)
-optimizer.set_weights(weights)
-models["encoderStart"].load_weights("./weights/encoderStart")
-for i in range(layers):
-    models["encoders"][i].load_weights("./weights/encoder" + str(i))
-models["encoderEnd"].load_weights("./weights/encoderEnd")
-models["decoderStart"].load_weights("./weights/decoderStart")
-for i in range(layers):
-    models["decoders"][i].load_weights("./weights/decoder" + str(i))
-models["decoderEnd"].load_weights("./weights/decoderEnd")
+# optimizer.apply_gradients(
+#     zip([tf.zeros_like(m) for m in trainableVariables], trainableVariables)
+# )
+# with open("./weights/optimizer", "rb") as f:
+#     weights = pickle.load(f)
+# optimizer.set_weights(weights)
+# models["encoderStart"].load_weights("./weights/encoderStart")
+# for i in range(layers):
+#     models["encoders"][i].load_weights("./weights/encoder" + str(i))
+# models["encoderEnd"].load_weights("./weights/encoderEnd")
+# models["decoderStart"].load_weights("./weights/decoderStart")
+# for i in range(layers):
+#     models["decoders"][i].load_weights("./weights/decoder" + str(i))
+# models["decoderEnd"].load_weights("./weights/decoderEnd")
 
 
 if toTrain:
