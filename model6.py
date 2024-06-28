@@ -88,8 +88,12 @@ def useExtendedTransformer(
         )
         encoderNorm0 = tf.keras.layers.LayerNormalization()(encoderAdd0)
         encoderDropout0 = tf.keras.layers.Dropout(pDropout)(encoderNorm0)
-        encoderDense0 = tf.keras.layers.Dense(dFF, "relu")(encoderDropout0)
-        encoderDense1 = tf.keras.layers.Dense(dModel, "linear")(encoderDense0)
+        encoderDense0 = tf.keras.layers.EinsumDense(
+            "abc,bcd->abd", (maxLen, dFF), "relu"
+        )(encoderDropout0)
+        encoderDense1 = tf.keras.layers.EinsumDense(
+            "abd,bcd->abc", (maxLen, dModel), "linear"
+        )(encoderDense0)
         encoderAdd1 = tf.keras.layers.Add()((encoderDense1, encoderDropout0))
         encoderNorm1 = tf.keras.layers.LayerNormalization()(encoderAdd1)
         encoderDropout1 = tf.keras.layers.Dropout(pDropout)(encoderNorm1)
@@ -160,8 +164,12 @@ def useExtendedTransformer(
         )
         decoderNorm1 = tf.keras.layers.LayerNormalization()(decoderAdd1)
         decoderDropout1 = tf.keras.layers.Dropout(pDropout)(decoderNorm1)
-        decoderDense0 = tf.keras.layers.Dense(dFF, "relu")(decoderDropout1)
-        decoderDense1 = tf.keras.layers.Dense(dModel, "linear")(decoderDense0)
+        decoderDense0 = tf.keras.layers.EinsumDense(
+            "abc,bcd->abd", (maxLen, dFF), "relu"
+        )(decoderDropout1)
+        decoderDense1 = tf.keras.layers.EinsumDense(
+            "abd,bcd->abc", (maxLen, dModel), "linear"
+        )(decoderDense0)
         decoderAdd2 = tf.keras.layers.Add()((decoderDense1, decoderDropout1))
         decoderNorm2 = tf.keras.layers.LayerNormalization()(decoderAdd2)
         decoderDropout2 = tf.keras.layers.Dropout(pDropout)(decoderNorm2)
@@ -202,9 +210,9 @@ with open("./wordTokens.json", "r", -1, "utf-8") as f:
     tokens = json.loads("".join(f.readlines()))
 depth = len(num2word)
 maxLen = 8
-# params = 482,405,712
-dModel = 512
-dFF = 2048
+# params = 171,957,328
+dModel = 256
+dFF = 512
 layers = 16
 h = 8
 numRecur = 4
@@ -272,7 +280,7 @@ funcs["decoderEnd"] = tf.function(
 )
 
 
-batchSize = 64 if toTrain else 1
+batchSize = 256 if toTrain else 1
 
 
 def predict():
