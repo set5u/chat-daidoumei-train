@@ -94,7 +94,7 @@ def useExtendedBERT(
     permute0 = tf.keras.layers.Permute((2, 1))(convInput)
     conv = tf.keras.layers.Conv1D(maxLen, 1)(permute0)
     permute1 = tf.keras.layers.Permute((2, 1))(conv)
-    convDense = tf.keras.layers.EinsumDense("abc,bcd->adc", (maxLen, dModel))(permute1)
+    convDense = tf.keras.layers.EinsumDense("abc,bcde->ade", (maxLen, dModel))(permute1)
     convModel = tf.keras.Model(convInput, convDense)
     outInput = tf.keras.Input((maxLen**2, dModel))
     outDense = tf.keras.layers.Dense(depthOutput, "softmax")(outInput)
@@ -110,7 +110,7 @@ with open("./wordTokens.json", "r", -1, "utf-8") as f:
     tokens = json.loads("".join(f.readlines()))
 depth = len(num2word)
 maxLen = 8
-# params =
+# params =z
 dModel = 256
 dFF = 512
 layers = 16
