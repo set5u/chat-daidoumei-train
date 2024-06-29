@@ -256,11 +256,65 @@ def predict():
             i += 1
 
 
-def train():
+trainableVariables = (
+    models[0].trainable_variables
+    + models[1].trainable_variables
+    + models[2].trainable_variables
+    + models[3].trainable_variables
+    + models[4].trainable_variables
+    + models[5].trainable_variables
+)
+optimizer = tf.keras.optimizers.Adadelta(1.0)
+optimizer.apply_gradients(
+    zip([tf.zeros_like(m) for m in trainableVariables], trainableVariables)
+)
+
+
+# with open("./weights/optimizer", "rb") as f:
+#     weights = pickle.load(f)
+# optimizer.set_weights(weights)
+# models[0].load_weights("./weights/start")
+# models[1].load_weights("./weights/attn")
+# models[2].load_weights("./weights/bridge")
+# models[3].load_weights("./weights/conv")
+# models[4].load_weights("./weights/collector")
+# models[5].load_weights("./weights/out")
+
+
+def loader():
+    while True:
+        input = []
+        output = []
+        for _ in range(batchSize):
+            startIndex = random.randint(0, len(tokens) - maxLen - 1)
+            input.append(tokens[startIndex : startIndex + maxLen ** (numRecur + 1)])
+            output.append(
+                tokens[startIndex + 1 : startIndex + maxLen ** (numRecur + 1) + 1]
+            )
+        yield (
+            tf.constant(input),
+            tf.constant(output),
+        )
+
+
+def train_step(optimizer, data):
     pass
 
 
 if toTrain:
-    train()
+    trainDatas = loader()
+    step = 0
+    while True:
+        print("step:", step, ",loss:", train_step(optimizer, next(trainDatas)).numpy())
+        step += 1
+        if step % 10 == 0:
+            models[0].save_weights("./weights/start")
+            models[1].save_weights("./weights/attn")
+            models[2].save_weights("./weights/bridge")
+            models[3].save_weights("./weights/conv")
+            models[4].save_weights("./weights/collector")
+            models[5].save_weights("./weights/out")
+            with open("./weights/optimizer", "wb") as f:
+                pickle.dump(optimizer.get_weights(), f)
 else:
     predict()
