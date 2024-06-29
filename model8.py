@@ -221,6 +221,39 @@ def predict():
             inputs.append(result)
             print(num2word[result], end="", flush=True)
         states[0].append(funcs[2](rs))
+        i = 0
+        while len(states) != i:
+            ss = states[i]
+            print(len(ss))
+            if len(ss) == maxLen:
+                state = funcs[4](
+                    (
+                        positionalEncodingInput,
+                        tf.reshape(
+                            tf.transpose(ss, (1, 2, 0, 3)),
+                            (batchSize, maxLen**2, dModel),
+                        ),
+                    )
+                )
+                if len(states) == i + 1:
+                    states.append([])
+                states[i + 1].append(funcs[3](state))
+                states[i] = []
+            else:
+                p = funcs[3](state)
+                state = funcs[4](
+                    (
+                        positionalEncodingInput,
+                        tf.reshape(
+                            tf.transpose(
+                                ss + [p] + [zeroPad] * (maxLen - len(ss) - 1),
+                                (1, 2, 0, 3),
+                            ),
+                            (batchSize, maxLen**2, dModel),
+                        ),
+                    )
+                )
+            i += 1
 
 
 def train():
