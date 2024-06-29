@@ -124,7 +124,7 @@ def useExtendedBERT(
         dropout2 = tf.keras.layers.Dropout(pDropout)(norm2)
         lastInput = dropout2
     collectorModel = tf.keras.Model(
-        (collectorInput, collectorPositionalEncodingInput), lastInput
+        (collectorPositionalEncodingInput, collectorInput), lastInput
     )
     convInput = tf.keras.Input((maxLen**2, dModel))
     permute0 = tf.keras.layers.Permute((2, 1))(convInput)
@@ -188,7 +188,39 @@ numRecur = 3  # len = 4096
 
 
 def predict():
-    pass
+    zeroState = tf.constant([[[0.0 for _ in range(dModel)] for _ in range(maxLen**2)]])
+    zeroPad = tf.constant([[[0.0 for _ in range(dModel)] for _ in range(maxLen)]])
+    positionalEncodingInput = positionalEncoding(maxLen**2, dModel)[tf.newaxis]
+    state = zeroState
+    states = [[]]
+    while True:
+        inputs = []
+        for i in range(maxLen**2):
+            r, m = funcs[0](
+                (
+                    positionalEncodingInput,
+                    tf.constant([inputs + [0] * (maxLen**2 - len(inputs))]),
+                )
+            )
+            rs = funcs[1]((r, m, state))
+            r = funcs[5](rs)
+            decoderSorted = tf.argsort(r[0][i])
+            results = []
+            sum = 0
+            for l in range(5):
+                c = r[0][i][decoderSorted[~l]].numpy()
+                sum += c
+                results.append(c)
+            r = random.random() * sum
+            t = 0
+            m = 0
+            while t < r:
+                t += results[m]
+                m += 1
+            result = decoderSorted[~m + 1].numpy()
+            inputs.append(result)
+            print(num2word[result], end="", flush=True)
+        states[0].append(funcs[2](rs))
 
 
 def train():
