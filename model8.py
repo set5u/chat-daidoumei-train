@@ -286,7 +286,7 @@ def loader():
         input = []
         output = []
         for _ in range(batchSize):
-            startIndex = random.randint(0, len(tokens) - maxLen - 1)
+            startIndex = random.randint(0, len(tokens) - maxLen ** (numRecur + 1) - 1)
             input.append(tokens[startIndex : startIndex + maxLen ** (numRecur + 1)])
             output.append(
                 tokens[startIndex + 1 : startIndex + maxLen ** (numRecur + 1) + 1]
