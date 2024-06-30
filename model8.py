@@ -57,7 +57,7 @@ def useExtendedBERT(
         (positionalEncoding, attentionMask),
     )
     layersInput = tf.keras.Input((maxLen**2, dModel))
-    layersMaskInput = tf.keras.Input((maxLen**2,))
+    layersMaskInput = tf.keras.Input((maxLen**2, 1))
     layersStateInput = tf.keras.Input((maxLen**2, dModel))
     lastInput = layersInput
     for _ in range(layers):
@@ -182,7 +182,7 @@ funcs.append(tf.function(lambda x, **kwargs: models[4](x, **kwargs), jit_compile
 funcs.append(tf.function(lambda x, **kwargs: models[5](x, **kwargs), jit_compile=True))
 
 
-batchSize = 64 if toTrain else 1
+batchSize = 32 if toTrain else 1
 
 numRecur = 3  # len = 4096
 
@@ -305,6 +305,7 @@ def train_step(optimizer, data):
                 inputs,
             )
         )
+        m = m[:, :, tf.newaxis]
         startOuts.append(r)
         maskOuts.append(m)
         rs = funcs[1]((r, m, state))
@@ -370,10 +371,27 @@ def train_step(optimizer, data):
             r, (trainableVariables, stateIns[j]), attnGrads[j] + nextGrads, "zero"
         )
         totalGrads = [g + gt for g, gt in zip(totalGrads, grads)]
-        # collector+conv
         with tf.GradientTape() as tape:
-            for m in bridgeOuts[:j]:
+            outs = bridgeOuts[:j]
+            for m in outs:
                 tape.watch(m)
+            while len(outs) != 1:
+                newOuts = []
+                for i in range(len(outs) // maxLen + 1):
+                    r = outs[i * maxLen : (i + 1) * maxLen]
+                    if len(r) == 0:
+                        break
+                    r = collectArray(r + [zeroPad] * (maxLen - len(r)))
+                    rs = funcs[4]((positionalEncodingInput, r))
+                    r = funcs[3](rs)
+                    newOuts.append(r)
+                outs = newOuts
+        grads, nextGrads = tape.gradient(
+            rs, (trainableVariables, bridgeOuts[:j]), nextGrads, "zero"
+        )
+        totalGrads = [g + gt for g, gt in zip(totalGrads, grads)]
+        for i, nextGrad in enumerate(nextGrads):
+            bridgeGrads[i] += nextGrad
         with tf.GradientTape() as tape:
             tape.watch(attnOuts[j - 1])
             r = funcs[2](attnOuts[j - 1])
@@ -381,10 +399,19 @@ def train_step(optimizer, data):
             r, (trainableVariables, attnOuts[j - 1]), bridgeGrads[j - 1], "zero"
         )
         totalGrads = [g + gt for g, gt in zip(totalGrads, grads)]
-        break
-
-    # 最後の一回
-
+    inputs = xs[:, 0 : maxLen**2]
+    with tf.GradientTape() as tape:
+        tape.watch(stateIns[0])
+        r, m = funcs[0](
+            (
+                positionalEncodingInput,
+                inputs,
+            )
+        )
+        r = funcs[1]((r, m, stateIns[0]))
+    grads = tape.gradient(r, trainableVariables, attnGrads[0] + nextGrads, "zero")
+    totalGrads = [g + gt for g, gt in zip(totalGrads, grads)]
+    optimizer.apply_gradients(zip(totalGrads, trainableVariables))
     return tf.reduce_mean(loss)
 
 
