@@ -5,7 +5,7 @@ import numpy as np
 import math
 import random
 
-toTrain = False
+toTrain = True
 
 dtype = "float32"
 
