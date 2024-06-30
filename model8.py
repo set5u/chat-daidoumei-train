@@ -5,7 +5,7 @@ import numpy as np
 import math
 import random
 
-toTrain = False
+toTrain = True
 
 dtype = "float32"
 
@@ -146,8 +146,8 @@ with open("./wordTokens.json", "r", -1, "utf-8") as f:
 depth = len(num2word)
 maxLen = 8
 # params =
-dModel = 256
-dFF = 512
+dModel = 128
+dFF = 256
 layers = 16
 h = 8
 numRecur = 4
@@ -269,21 +269,6 @@ trainableVariables = (
     + models[4].trainable_variables
     + models[5].trainable_variables
 )
-optimizer = tf.keras.optimizers.Adadelta(1.0)
-optimizer.apply_gradients(
-    zip([tf.zeros_like(m) for m in trainableVariables], trainableVariables)
-)
-
-
-# with open("./weights/optimizer", "rb") as f:
-#     weights = pickle.load(f)
-# optimizer.set_weights(weights)
-# models[0].load_weights("./weights/start")
-# models[1].load_weights("./weights/attn")
-# models[2].load_weights("./weights/bridge")
-# models[3].load_weights("./weights/conv")
-# models[4].load_weights("./weights/collector")
-# models[5].load_weights("./weights/out")
 
 
 def loader():
@@ -308,26 +293,22 @@ def train_step(optimizer, data):
     states = [[]]
     startOuts = []
     maskOuts = []
-    attnOuts = []
     stateIns = []
+    attnOuts = []
     bridgeOuts = []
-    outs = []
-    # fore
     for j in range(maxLen ** (numRecur - 1)):
         inputs = xs[:, j * maxLen**2 : (j + 1) * maxLen**2]
         stateIns.append(state)
         r, m = funcs[0](
             (
                 positionalEncodingInput,
-                tf.constant(inputs),
+                inputs,
             )
         )
         startOuts.append(r)
         maskOuts.append(m)
         rs = funcs[1]((r, m, state))
         attnOuts.append(rs)
-        r = funcs[5](rs)
-        outs.append(r)
         r = funcs[2](rs)
         bridgeOuts.append(r)
         states[0].append(r)
@@ -357,7 +338,69 @@ def train_step(optimizer, data):
                     )
                 )
             i += 1
+    loss = []
+    totalGrads = [tf.zeros_like(m) for m in trainableVariables]
+    attnGrads = []
+    bridgeGrads = [0 for _ in range(maxLen ** (numRecur - 1))]
+    for j, out in enumerate(attnOuts):
+        with tf.GradientTape() as tape:
+            tape.watch(out)
+            r = funcs[5](out)
+            r = tf.keras.losses.sparse_categorical_crossentropy(
+                ys[:, j * maxLen**2 : (j + 1) * maxLen**2], r
+            )
+        grads, nextGrads = tape.gradient(r, (trainableVariables, out), None, "zero")
+        loss.append(r)
+        totalGrads = [g + gt for g, gt in zip(totalGrads, grads)]
+        attnGrads.append(nextGrads)
+    nextGrads = 0
+    for ij in range(maxLen ** (numRecur - 1) - 1):
+        j = maxLen ** (numRecur - 1) - ij - 1
+        inputs = xs[:, j * maxLen**2 : (j + 1) * maxLen**2]
+        with tf.GradientTape() as tape:
+            tape.watch(stateIns[j])
+            r, m = funcs[0](
+                (
+                    positionalEncodingInput,
+                    inputs,
+                )
+            )
+            r = funcs[1]((r, m, stateIns[j]))
+        grads, nextGrads = tape.gradient(
+            r, (trainableVariables, stateIns[j]), attnGrads[j] + nextGrads, "zero"
+        )
+        totalGrads = [g + gt for g, gt in zip(totalGrads, grads)]
+        # collector+conv
+        with tf.GradientTape() as tape:
+            for m in bridgeOuts[:j]:
+                tape.watch(m)
+        with tf.GradientTape() as tape:
+            tape.watch(attnOuts[j - 1])
+            r = funcs[2](attnOuts[j - 1])
+        grads, nextGrads = tape.gradient(
+            r, (trainableVariables, attnOuts[j - 1]), bridgeGrads[j - 1], "zero"
+        )
+        totalGrads = [g + gt for g, gt in zip(totalGrads, grads)]
+        break
 
+    # 最後の一回
+
+    return tf.reduce_mean(loss)
+
+
+optimizer = tf.keras.optimizers.Adadelta(1.0)
+optimizer.apply_gradients(
+    zip([tf.zeros_like(m) for m in trainableVariables], trainableVariables)
+)
+# with open("./weights/optimizer", "rb") as f:
+#     weights = pickle.load(f)
+# optimizer.set_weights(weights)
+# models[0].load_weights("./weights/start")
+# models[1].load_weights("./weights/attn")
+# models[2].load_weights("./weights/bridge")
+# models[3].load_weights("./weights/conv")
+# models[4].load_weights("./weights/collector")
+# models[5].load_weights("./weights/out")
 
 if toTrain:
     trainDatas = loader()
