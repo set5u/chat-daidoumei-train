@@ -224,7 +224,6 @@ def predict():
         i = 0
         while len(states) != i:
             ss = states[i]
-            print(len(ss))
             if len(ss) == maxLen:
                 state = funcs[4](
                     (
