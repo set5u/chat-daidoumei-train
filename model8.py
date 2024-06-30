@@ -249,8 +249,8 @@ def predict():
                             states[i - 1] + [zeroPad] * (maxLen - len(states[i - 1]))
                         )
                     )
-                    if len(states) != 0
-                    else zeroState
+                    if len(states) != 1
+                    else zeroPad
                 )
                 state = funcs[4](
                     (
@@ -347,8 +347,8 @@ def train_step(optimizer, data):
                             states[i - 1] + [zeroPad] * (maxLen - len(states[i - 1]))
                         )
                     )
-                    if len(states) != 0
-                    else zeroState
+                    if len(states) != 1
+                    else zeroPad
                 )
                 state = funcs[4](
                     (
