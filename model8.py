@@ -5,7 +5,7 @@ import numpy as np
 import math
 import random
 
-toTrain = False
+toTrain = True
 
 dtype = "float32"
 
@@ -186,11 +186,16 @@ batchSize = 64 if toTrain else 1
 
 numRecur = 3  # len = 4096
 
+zeroState = tf.constant(
+    [[[0.0 for _ in range(dModel)] for _ in range(maxLen**2)] for _ in range(batchSize)]
+)
+zeroPad = tf.constant(
+    [[[0.0 for _ in range(dModel)] for _ in range(maxLen)] for _ in range(batchSize)]
+)
+positionalEncodingInput = positionalEncoding(maxLen**2, dModel)[tf.newaxis]
+
 
 def predict():
-    zeroState = tf.constant([[[0.0 for _ in range(dModel)] for _ in range(maxLen**2)]])
-    zeroPad = tf.constant([[[0.0 for _ in range(dModel)] for _ in range(maxLen)]])
-    positionalEncodingInput = positionalEncoding(maxLen**2, dModel)[tf.newaxis]
     state = zeroState
     states = [[]]
     while True:
@@ -297,7 +302,66 @@ def loader():
 
 
 def train_step(optimizer, data):
-    pass
+    xs, ys = data
+    state = zeroState
+    states = [[]]
+    startOuts = []
+    maskOuts = []
+    attnOuts = []
+    stateIns = []
+    bridgeOuts = []
+    outs = []
+    # fore
+    for j in range(maxLen ** (numRecur - 1)):
+        inputs = xs[:, j * maxLen**2 : (j + 1) * maxLen**2]
+        stateIns.append(state)
+        r, m = funcs[0](
+            (
+                positionalEncodingInput,
+                tf.constant(inputs),
+            )
+        )
+        startOuts.append(r)
+        maskOuts.append(m)
+        rs = funcs[1]((r, m, state))
+        attnOuts.append(rs)
+        r = funcs[5](rs)
+        outs.append(r)
+        r = funcs[2](rs)
+        bridgeOuts.append(r)
+        states[0].append(r)
+        i = 0
+        while len(states) != i:
+            ss = states[i]
+            if len(ss) == maxLen:
+                state = funcs[4](
+                    (
+                        positionalEncodingInput,
+                        tf.reshape(
+                            tf.transpose(ss, (1, 2, 0, 3)),
+                            (batchSize, maxLen**2, dModel),
+                        ),
+                    )
+                )
+                if len(states) == i + 1:
+                    states.append([])
+                states[i + 1].append(funcs[3](state))
+                states[i] = []
+            else:
+                p = funcs[3](state)
+                state = funcs[4](
+                    (
+                        positionalEncodingInput,
+                        tf.reshape(
+                            tf.transpose(
+                                ss + [p] + [zeroPad] * (maxLen - len(ss) - 1),
+                                (1, 2, 0, 3),
+                            ),
+                            (batchSize, maxLen**2, dModel),
+                        ),
+                    )
+                )
+            i += 1
 
 
 if toTrain:
