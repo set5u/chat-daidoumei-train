@@ -5,7 +5,7 @@ import numpy as np
 import math
 import random
 
-toTrain = True
+toTrain = False
 
 dtype = "float32"
 
@@ -195,6 +195,13 @@ zeroPad = tf.constant(
 positionalEncodingInput = positionalEncoding(maxLen**2, dModel)[tf.newaxis]
 
 
+def collectArray(x):
+    return tf.reshape(
+        tf.transpose(x, (1, 2, 0, 3)),
+        (batchSize, maxLen**2, dModel),
+    )
+
+
 def predict():
     state = zeroState
     states = [[]]
@@ -230,31 +237,25 @@ def predict():
         while len(states) != i:
             ss = states[i]
             if len(ss) == maxLen:
-                state = funcs[4](
-                    (
-                        positionalEncodingInput,
-                        tf.reshape(
-                            tf.transpose(ss, (1, 2, 0, 3)),
-                            (batchSize, maxLen**2, dModel),
-                        ),
-                    )
-                )
+                state = funcs[4]((positionalEncodingInput, collectArray(ss)))
                 if len(states) == i + 1:
                     states.append([])
                 states[i + 1].append(funcs[3](state))
                 states[i] = []
             else:
-                p = funcs[3](state)
+                p = (
+                    funcs[3](
+                        collectArray(
+                            states[i - 1] + [zeroPad] * (maxLen - len(states[i - 1]))
+                        )
+                    )
+                    if len(states) != 0
+                    else zeroState
+                )
                 state = funcs[4](
                     (
                         positionalEncodingInput,
-                        tf.reshape(
-                            tf.transpose(
-                                ss + [p] + [zeroPad] * (maxLen - len(ss) - 1),
-                                (1, 2, 0, 3),
-                            ),
-                            (batchSize, maxLen**2, dModel),
-                        ),
+                        collectArray(ss + [p] + [zeroPad] * (maxLen - len(ss) - 1)),
                     )
                 )
             i += 1
@@ -334,31 +335,25 @@ def train_step(optimizer, data):
         while len(states) != i:
             ss = states[i]
             if len(ss) == maxLen:
-                state = funcs[4](
-                    (
-                        positionalEncodingInput,
-                        tf.reshape(
-                            tf.transpose(ss, (1, 2, 0, 3)),
-                            (batchSize, maxLen**2, dModel),
-                        ),
-                    )
-                )
+                state = funcs[4]((positionalEncodingInput, collectArray(ss)))
                 if len(states) == i + 1:
                     states.append([])
                 states[i + 1].append(funcs[3](state))
                 states[i] = []
             else:
-                p = funcs[3](state)
+                p = (
+                    funcs[3](
+                        collectArray(
+                            states[i - 1] + [zeroPad] * (maxLen - len(states[i - 1]))
+                        )
+                    )
+                    if len(states) != 0
+                    else zeroState
+                )
                 state = funcs[4](
                     (
                         positionalEncodingInput,
-                        tf.reshape(
-                            tf.transpose(
-                                ss + [p] + [zeroPad] * (maxLen - len(ss) - 1),
-                                (1, 2, 0, 3),
-                            ),
-                            (batchSize, maxLen**2, dModel),
-                        ),
+                        collectArray(ss + [p] + [zeroPad] * (maxLen - len(ss) - 1)),
                     )
                 )
             i += 1
