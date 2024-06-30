@@ -214,7 +214,7 @@ def predict():
                     tf.constant([inputs + [0] * (maxLen**2 - len(inputs))]),
                 )
             )
-            rs = funcs[1]((r, m, state))
+            rs = funcs[1]((r, m[:, :, tf.newaxis], state))
             r = funcs[5](rs)
             decoderSorted = tf.argsort(r[0][i])
             results = []
