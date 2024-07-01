@@ -197,7 +197,7 @@ positionalEncodingInput = positionalEncoding(maxLen**2, dModel)[tf.newaxis]
 
 def collectArray(x):
     return tf.reshape(
-        tf.transpose(x, (1, 2, 0, 3)),
+        tf.transpose(x, (1, 0, 2, 3)),
         (batchSize, maxLen**2, dModel),
     )
 
