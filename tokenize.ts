@@ -36,7 +36,7 @@ fs.writeFile("./words.json", JSON.stringify(words), (e) => {
     throw e;
   }
 });
-const num2word = ["<pad>", "<bos>", "<eos>", "<unk>"];
+const num2word = ["<pad>", "<bos>", "<suk>", "<euk>"];
 for (const word in words) {
   num2word.push(word);
 }
@@ -65,7 +65,16 @@ for (const line of lines) {
       let end = word.length;
       while (true) {
         if (!end) {
-          wordTokens.push(word2num["<unk>"]);
+          for (let char of word) {
+            wordTokens.push(word2num["<suk>"]);
+            for (let code of char.codePointAt(0).toString(16).toUpperCase()) {
+              if (!word2num[code]) {
+                throw "invalid code: " + code;
+              }
+              wordTokens.push(word2num[code]);
+            }
+            wordTokens.push(word2num["<euk>"]);
+          }
           break;
         }
         const splitted = word.substring(0, end);
