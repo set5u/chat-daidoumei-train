@@ -203,7 +203,7 @@ def collectArray(x):
 
 
 def predict():
-    state = zeroState
+    state = tf.random.normal((batchSize, maxLen**2, dModel))
     states = [[]]
     while True:
         inputs = []
