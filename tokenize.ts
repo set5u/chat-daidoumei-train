@@ -65,9 +65,12 @@ for (const line of lines) {
       let end = word.length;
       while (true) {
         if (!end) {
-          for (let char of word) {
+          const zero = word2num[Array.from(word)[0]];
+          if (zero) {
+            wordTokens.push(zero);
+          } else {
             wordTokens.push(word2num["<suk>"]);
-            for (let code of char.codePointAt(0).toString(16).toUpperCase()) {
+            for (let code of word.codePointAt(0).toString(16).toUpperCase()) {
               if (!word2num[code]) {
                 throw "invalid code: " + code;
               }
@@ -75,7 +78,12 @@ for (const line of lines) {
             }
             wordTokens.push(word2num["<euk>"]);
           }
-          break;
+          word = Array.from(word).slice(1).join("");
+          if (word.length) {
+            continue;
+          } else {
+            break;
+          }
         }
         const splitted = word.substring(0, end);
         const wordI = word2num[splitted];
