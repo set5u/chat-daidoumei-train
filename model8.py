@@ -7,7 +7,9 @@ import random
 
 toTrain = True
 
-dtype = "float32"
+policy = tf.keras.mixed_precision.Policy("mixed_float16")
+tf.keras.mixed_precision.set_global_policy(policy)
+dtype = "float16"
 
 
 def positionalEncoding(length, depth):
@@ -56,9 +58,9 @@ def useExtendedBERT(
         (positionalEncodingInput, input),
         (positionalEncoding, attentionMask),
     )
-    layersInput = tf.keras.Input((maxLen**2, dModel))
+    layersInput = tf.keras.Input((maxLen**2, dModel), dtype=dtype)
     layersMaskInput = tf.keras.Input((maxLen**2, 1))
-    layersStateInput = tf.keras.Input((maxLen**2, dModel))
+    layersStateInput = tf.keras.Input((maxLen**2, dModel), dtype=dtype)
     lastInput = layersInput
     for _ in range(layers):
         attn0 = tf.keras.layers.MultiHeadAttention(h, dModel // h)(
@@ -92,14 +94,14 @@ def useExtendedBERT(
     layerModel = tf.keras.Model(
         (layersInput, layersMaskInput, layersStateInput), lastInput
     )
-    bridgeInput = tf.keras.Input((maxLen**2, dModel))
+    bridgeInput = tf.keras.Input((maxLen**2, dModel), dtype=dtype)
     bridgePermute0 = tf.keras.layers.Permute((2, 1))(bridgeInput)
     bridgeConv0 = tf.keras.layers.Conv1D(maxLen, 1)(bridgePermute0)
     bridgeDense = tf.keras.layers.EinsumDense("abc,bcde->ade", (maxLen, dModel))(
         bridgeConv0
     )
     bridgeModel = tf.keras.Model(bridgeInput, bridgeDense)
-    collectorInput = tf.keras.Input((maxLen**2, dModel))
+    collectorInput = tf.keras.Input((maxLen**2, dModel), dtype=dtype)
     collectorPositionalEncodingInput = tf.keras.Input((maxLen**2, dModel))
     collectorPositionalEncoding = tf.keras.layers.Add()(
         (collectorInput, collectorPositionalEncodingInput)
@@ -126,12 +128,12 @@ def useExtendedBERT(
     collectorModel = tf.keras.Model(
         (collectorPositionalEncodingInput, collectorInput), lastInput
     )
-    convInput = tf.keras.Input((maxLen**2, dModel))
+    convInput = tf.keras.Input((maxLen**2, dModel), dtype=dtype)
     permute0 = tf.keras.layers.Permute((2, 1))(convInput)
     conv = tf.keras.layers.Conv1D(maxLen, 1)(permute0)
     convDense = tf.keras.layers.EinsumDense("abc,bcde->ade", (maxLen, dModel))(conv)
     convModel = tf.keras.Model(convInput, convDense)
-    outInput = tf.keras.Input((maxLen**2, dModel))
+    outInput = tf.keras.Input((maxLen**2, dModel), dtype=dtype)
     outDense = tf.keras.layers.Dense(depthOutput, "softmax")(outInput)
     outModel = tf.keras.Model(outInput, outDense)
     return start, layerModel, bridgeModel, convModel, collectorModel, outModel
@@ -146,8 +148,8 @@ with open("./wordTokens.json", "r", -1, "utf-8") as f:
 depth = len(num2word)
 maxLen = 4
 # params =
-dModel = 256
-dFF = 512
+dModel = 128
+dFF = 256
 layers = 16
 h = 8
 numRecur = 4
@@ -174,24 +176,30 @@ tf.keras.utils.plot_model(models[3], "conv.png", show_shapes=True)
 tf.keras.utils.plot_model(models[4], "collector.png", show_shapes=True)
 tf.keras.utils.plot_model(models[5], "out.png", show_shapes=True)
 funcs = []
-funcs.append(tf.function(lambda x, **kwargs: models[0](x, **kwargs), jit_compile=True))
-funcs.append(tf.function(lambda x, **kwargs: models[1](x, **kwargs), jit_compile=True))
-funcs.append(tf.function(lambda x, **kwargs: models[2](x, **kwargs), jit_compile=True))
-funcs.append(tf.function(lambda x, **kwargs: models[3](x, **kwargs), jit_compile=True))
-funcs.append(tf.function(lambda x, **kwargs: models[4](x, **kwargs), jit_compile=True))
-funcs.append(tf.function(lambda x, **kwargs: models[5](x, **kwargs), jit_compile=True))
+funcs.append(tf.function(lambda x, **kwargs: models[0](x, **kwargs), jit_compile=False))
+funcs.append(tf.function(lambda x, **kwargs: models[1](x, **kwargs), jit_compile=False))
+funcs.append(tf.function(lambda x, **kwargs: models[2](x, **kwargs), jit_compile=False))
+funcs.append(tf.function(lambda x, **kwargs: models[3](x, **kwargs), jit_compile=False))
+funcs.append(tf.function(lambda x, **kwargs: models[4](x, **kwargs), jit_compile=False))
+funcs.append(tf.function(lambda x, **kwargs: models[5](x, **kwargs), jit_compile=False))
 
 
-batchSize = 256 if toTrain else 1
+batchSize = 64 if toTrain else 1
 
-numRecur = 3  # len = 4096
+numRecur = 4  # len = 1024
 
 zeroState = tf.constant(
-    [[[0.0 for _ in range(dModel)] for _ in range(maxLen**2)] for _ in range(batchSize)]
+    [
+        [[0.0 for _ in range(dModel)] for _ in range(maxLen**2)]
+        for _ in range(batchSize)
+    ],
+    dtype=dtype,
 )
 zeroPad = tf.constant(
-    [[[0.0 for _ in range(dModel)] for _ in range(maxLen)] for _ in range(batchSize)]
+    [[[0.0 for _ in range(dModel)] for _ in range(maxLen)] for _ in range(batchSize)],
+    dtype=dtype,
 )
+
 positionalEncodingInput = positionalEncoding(maxLen**2, dModel)[tf.newaxis]
 
 
@@ -346,7 +354,7 @@ def train_step(optimizer, data):
     for j, out in enumerate(attnOuts):
         with tf.GradientTape() as tape:
             tape.watch(out)
-            r = funcs[5](out)
+            r = funcs[5](out, training=True)
             r = tf.keras.losses.sparse_categorical_crossentropy(
                 ys[:, j * maxLen**2 : (j + 1) * maxLen**2], r
             )
@@ -364,7 +372,8 @@ def train_step(optimizer, data):
                 (
                     positionalEncodingInput,
                     inputs,
-                )
+                ),
+                training=True,
             )
             r = funcs[1]((r, m, stateIns[j]))
         grads, nextGrads = tape.gradient(
@@ -382,8 +391,8 @@ def train_step(optimizer, data):
                     if len(r) == 0:
                         break
                     r = collectArray(r + [zeroPad] * (maxLen - len(r)))
-                    rs = funcs[4]((positionalEncodingInput, r))
-                    r = funcs[3](rs)
+                    rs = funcs[4]((positionalEncodingInput, r), training=True)
+                    r = funcs[3](rs, training=True)
                     newOuts.append(r)
                 outs = newOuts
         grads, nextGrads = tape.gradient(
@@ -394,7 +403,7 @@ def train_step(optimizer, data):
             bridgeGrads[i] += nextGrad
         with tf.GradientTape() as tape:
             tape.watch(attnOuts[j - 1])
-            r = funcs[2](attnOuts[j - 1])
+            r = funcs[2](attnOuts[j - 1], training=True)
         grads, nextGrads = tape.gradient(
             r, (trainableVariables, attnOuts[j - 1]), bridgeGrads[j - 1], "zero"
         )
@@ -406,9 +415,10 @@ def train_step(optimizer, data):
             (
                 positionalEncodingInput,
                 inputs,
-            )
+            ),
+            training=True,
         )
-        r = funcs[1]((r, m, stateIns[0]))
+        r = funcs[1]((r, m, stateIns[0]), training=True)
     grads = tape.gradient(r, trainableVariables, attnGrads[0] + nextGrads, "zero")
     totalGrads = [g + gt for g, gt in zip(totalGrads, grads)]
     optimizer.apply_gradients(zip(totalGrads, trainableVariables))
@@ -419,15 +429,15 @@ optimizer = tf.keras.optimizers.Adadelta(1.0)
 optimizer.apply_gradients(
     zip([tf.zeros_like(m) for m in trainableVariables], trainableVariables)
 )
-with open("./weights/optimizer", "rb") as f:
-    weights = pickle.load(f)
-optimizer.set_weights(weights)
-models[0].load_weights("./weights/start")
-models[1].load_weights("./weights/attn")
-models[2].load_weights("./weights/bridge")
-models[3].load_weights("./weights/conv")
-models[4].load_weights("./weights/collector")
-models[5].load_weights("./weights/out")
+# with open("./weights/optimizer", "rb") as f:
+#     weights = pickle.load(f)
+# optimizer.set_weights(weights)
+# models[0].load_weights("./weights/start")
+# models[1].load_weights("./weights/attn")
+# models[2].load_weights("./weights/bridge")
+# models[3].load_weights("./weights/conv")
+# models[4].load_weights("./weights/collector")
+# models[5].load_weights("./weights/out")
 
 if toTrain:
     trainDatas = loader()
