@@ -76,7 +76,6 @@ def useExtendedBERT(
             dropout0,
             layersStateInput,
             attention_mask=layersMaskInput,
-            use_causal_mask=True,
         )
         add1 = tf.keras.layers.Add()([attn1, norm0])
         norm1 = tf.keras.layers.LayerNormalization()(add1)
@@ -97,10 +96,8 @@ def useExtendedBERT(
     bridgeInput = tf.keras.Input((maxLen**2, dModel), dtype=dtype)
     bridgePermute0 = tf.keras.layers.Permute((2, 1))(bridgeInput)
     bridgeConv0 = tf.keras.layers.Conv1D(maxLen, 1)(bridgePermute0)
-    bridgeDense = tf.keras.layers.EinsumDense("abc,bcde->ade", (maxLen, dModel))(
-        bridgeConv0
-    )
-    bridgeModel = tf.keras.Model(bridgeInput, bridgeDense)
+    bridgePermute1 = tf.keras.layers.Permute((2, 1))(bridgeConv0)
+    bridgeModel = tf.keras.Model(bridgeInput, bridgePermute1)
     collectorInput = tf.keras.Input((maxLen**2, dModel), dtype=dtype)
     collectorPositionalEncodingInput = tf.keras.Input((maxLen**2, dModel))
     collectorPositionalEncoding = tf.keras.layers.Add()(
@@ -131,8 +128,8 @@ def useExtendedBERT(
     convInput = tf.keras.Input((maxLen**2, dModel), dtype=dtype)
     permute0 = tf.keras.layers.Permute((2, 1))(convInput)
     conv = tf.keras.layers.Conv1D(maxLen, 1)(permute0)
-    convDense = tf.keras.layers.EinsumDense("abc,bcde->ade", (maxLen, dModel))(conv)
-    convModel = tf.keras.Model(convInput, convDense)
+    permute1 = tf.keras.layers.Permute((2, 1))(conv)
+    convModel = tf.keras.Model(convInput, permute1)
     outInput = tf.keras.Input((maxLen**2, dModel), dtype=dtype)
     outDense = tf.keras.layers.Dense(depthOutput, "softmax")(outInput)
     outModel = tf.keras.Model(outInput, outDense)
@@ -183,9 +180,9 @@ funcs.append(tf.function(lambda x, **kwargs: models[4](x, **kwargs), jit_compile
 funcs.append(tf.function(lambda x, **kwargs: models[5](x, **kwargs), jit_compile=False))
 
 
-batchSize = 1024 if toTrain else 1
+batchSize = 256 if toTrain else 1
 
-numRecur = 1  # len = 16,64,256,1024
+numRecur = 2  # len = 16,64,256,1024
 
 zeroState = tf.constant(
     [
@@ -407,9 +404,8 @@ def train_step(optimizer, data):
             r, (trainableVariables, attnOuts[j - 1]), bridgeGrads[j - 1], "zero"
         )
         totalGrads = [g + gt for g, gt in zip(totalGrads, grads)]
-    inputs = xs[:, 0 : maxLen**2]
+    inputs = xs[:, : maxLen**2]
     with tf.GradientTape() as tape:
-        tape.watch(stateIns[0])
         r, m = funcs[0](
             (
                 positionalEncodingInput,
@@ -421,7 +417,7 @@ def train_step(optimizer, data):
     grads = tape.gradient(r, trainableVariables, attnGrads[0] + nextGrads, "zero")
     totalGrads = [g + gt for g, gt in zip(totalGrads, grads)]
     optimizer.apply_gradients(zip(totalGrads, trainableVariables))
-    return tf.reduce_mean(loss, 1)
+    return tf.reduce_mean(loss, 1).numpy(), tf.reduce_mean(loss).numpy()
 
 
 optimizer = tf.keras.optimizers.Adadelta(1.0)
@@ -442,7 +438,7 @@ if toTrain:
     trainDatas = loader()
     step = 0
     while True:
-        print("step:", step, ",loss:", train_step(optimizer, next(trainDatas)).numpy())
+        print("step:", step, ",loss:", *train_step(optimizer, next(trainDatas)))
         step += 1
         if step % 100 == 0:
             models[0].save_weights("./weights/start")
