@@ -148,11 +148,10 @@ with open("./wordTokens.json", "r", -1, "utf-8") as f:
 depth = len(num2word)
 maxLen = 4
 # params =
-dModel = 128
-dFF = 256
+dModel = 256
+dFF = 512
 layers = 16
 h = 8
-numRecur = 4
 models = useExtendedBERT(
     dModel,
     dFF,
@@ -184,9 +183,9 @@ funcs.append(tf.function(lambda x, **kwargs: models[4](x, **kwargs), jit_compile
 funcs.append(tf.function(lambda x, **kwargs: models[5](x, **kwargs), jit_compile=False))
 
 
-batchSize = 64 if toTrain else 1
+batchSize = 1024 if toTrain else 1
 
-numRecur = 4  # len = 1024
+numRecur = 1  # len = 16,64,256,1024
 
 zeroState = tf.constant(
     [
@@ -445,7 +444,7 @@ if toTrain:
     while True:
         print("step:", step, ",loss:", train_step(optimizer, next(trainDatas)).numpy())
         step += 1
-        if step % 10 == 0:
+        if step % 100 == 0:
             models[0].save_weights("./weights/start")
             models[1].save_weights("./weights/attn")
             models[2].save_weights("./weights/bridge")
