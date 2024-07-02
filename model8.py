@@ -71,8 +71,8 @@ def useExtendedBERT(
         norm0 = tf.keras.layers.LayerNormalization()(add0)
         dropout0 = tf.keras.layers.Dropout(pDropout)(norm0)
         attn1 = tf.keras.layers.MultiHeadAttention(h, dModel // h)(
-            layersStateInput,
             dropout0,
+            layersStateInput,
             attention_mask=layersMaskInput,
             use_causal_mask=True,
         )
@@ -419,15 +419,15 @@ optimizer = tf.keras.optimizers.Adadelta(1.0)
 optimizer.apply_gradients(
     zip([tf.zeros_like(m) for m in trainableVariables], trainableVariables)
 )
-# with open("./weights/optimizer", "rb") as f:
-#     weights = pickle.load(f)
-# optimizer.set_weights(weights)
-# models[0].load_weights("./weights/start")
-# models[1].load_weights("./weights/attn")
-# models[2].load_weights("./weights/bridge")
-# models[3].load_weights("./weights/conv")
-# models[4].load_weights("./weights/collector")
-# models[5].load_weights("./weights/out")
+with open("./weights/optimizer", "rb") as f:
+    weights = pickle.load(f)
+optimizer.set_weights(weights)
+models[0].load_weights("./weights/start")
+models[1].load_weights("./weights/attn")
+models[2].load_weights("./weights/bridge")
+models[3].load_weights("./weights/conv")
+models[4].load_weights("./weights/collector")
+models[5].load_weights("./weights/out")
 
 if toTrain:
     trainDatas = loader()
