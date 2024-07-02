@@ -144,10 +144,10 @@ with open("./word2num.json", "r", -1, "utf-8") as f:
 with open("./wordTokens.json", "r", -1, "utf-8") as f:
     tokens = json.loads("".join(f.readlines()))
 depth = len(num2word)
-maxLen = 8
+maxLen = 4
 # params =
-dModel = 128
-dFF = 256
+dModel = 256
+dFF = 512
 layers = 16
 h = 8
 numRecur = 4
@@ -182,7 +182,7 @@ funcs.append(tf.function(lambda x, **kwargs: models[4](x, **kwargs), jit_compile
 funcs.append(tf.function(lambda x, **kwargs: models[5](x, **kwargs), jit_compile=True))
 
 
-batchSize = 32 if toTrain else 1
+batchSize = 256 if toTrain else 1
 
 numRecur = 3  # len = 4096
 
