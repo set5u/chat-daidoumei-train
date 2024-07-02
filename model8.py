@@ -71,8 +71,8 @@ def useExtendedBERT(
         norm0 = tf.keras.layers.LayerNormalization()(add0)
         dropout0 = tf.keras.layers.Dropout(pDropout)(norm0)
         attn1 = tf.keras.layers.MultiHeadAttention(h, dModel // h)(
-            dropout0,
             layersStateInput,
+            dropout0,
             attention_mask=layersMaskInput,
             use_causal_mask=True,
         )
@@ -412,22 +412,22 @@ def train_step(optimizer, data):
     grads = tape.gradient(r, trainableVariables, attnGrads[0] + nextGrads, "zero")
     totalGrads = [g + gt for g, gt in zip(totalGrads, grads)]
     optimizer.apply_gradients(zip(totalGrads, trainableVariables))
-    return tf.reduce_mean(loss)
+    return tf.reduce_mean(loss, 1)
 
 
 optimizer = tf.keras.optimizers.Adadelta(1.0)
 optimizer.apply_gradients(
     zip([tf.zeros_like(m) for m in trainableVariables], trainableVariables)
 )
-with open("./weights/optimizer", "rb") as f:
-    weights = pickle.load(f)
-optimizer.set_weights(weights)
-models[0].load_weights("./weights/start")
-models[1].load_weights("./weights/attn")
-models[2].load_weights("./weights/bridge")
-models[3].load_weights("./weights/conv")
-models[4].load_weights("./weights/collector")
-models[5].load_weights("./weights/out")
+# with open("./weights/optimizer", "rb") as f:
+#     weights = pickle.load(f)
+# optimizer.set_weights(weights)
+# models[0].load_weights("./weights/start")
+# models[1].load_weights("./weights/attn")
+# models[2].load_weights("./weights/bridge")
+# models[3].load_weights("./weights/conv")
+# models[4].load_weights("./weights/collector")
+# models[5].load_weights("./weights/out")
 
 if toTrain:
     trainDatas = loader()
