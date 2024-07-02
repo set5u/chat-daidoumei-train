@@ -7,9 +7,9 @@ import random
 
 toTrain = True
 
-policy = tf.keras.mixed_precision.Policy("mixed_float16")
-tf.keras.mixed_precision.set_global_policy(policy)
-dtype = "float16"
+# policy = tf.keras.mixed_precision.Policy("mixed_float16")
+# tf.keras.mixed_precision.set_global_policy(policy)
+dtype = "float32"
 
 
 def positionalEncoding(length, depth):
