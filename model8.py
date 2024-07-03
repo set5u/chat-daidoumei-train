@@ -145,10 +145,10 @@ with open("./wordTokens.json", "r", -1, "utf-8") as f:
 depth = len(num2word)
 maxLen = 4
 # params =
-dModel = 32
-dFF = 64
-layers = 4
-h = 4
+dModel = 256
+dFF = 512
+layers = 16
+h = 8
 models = useExtendedBERT(
     dModel,
     dFF,
@@ -180,9 +180,9 @@ funcs.append(tf.function(lambda x, **kwargs: models[4](x, **kwargs), jit_compile
 funcs.append(tf.function(lambda x, **kwargs: models[5](x, **kwargs), jit_compile=False))
 
 
-batchSize = 1024 if toTrain else 1
+batchSize = 64 if toTrain else 1
 
-numRecur = 4  # len = 16,64,256,1024
+numRecur = 1
 
 oneState = tf.constant(
     [
@@ -207,7 +207,7 @@ def collectArray(x, batchSize=batchSize):
 
 
 def predict():
-    state = tf.random.normal((batchSize, maxLen**2, dModel))
+    state = oneState
     states = [[]]
     while True:
         inputs = []
@@ -422,6 +422,13 @@ def train_step(optimizer, data):
 
 def predict_step():
     batchSize = 1
+    oneState = tf.constant(
+        [
+            [[1.0 for _ in range(dModel)] for _ in range(maxLen**2)]
+            for _ in range(batchSize)
+        ],
+        dtype=dtype,
+    )
     zeroPad = tf.constant(
         [
             [[0.0 for _ in range(dModel)] for _ in range(maxLen)]
@@ -429,7 +436,7 @@ def predict_step():
         ],
         dtype=dtype,
     )
-    state = tf.random.normal((batchSize, maxLen**2, dModel))
+    state = oneState
     states = [[]]
     for _ in range(maxLen ** (numRecur - 1)):
         inputs = []
@@ -491,18 +498,18 @@ def predict_step():
 
 
 optimizer = tf.keras.optimizers.Adadelta(1.0)
-optimizer.apply_gradients(
-    zip([tf.zeros_like(m) for m in trainableVariables], trainableVariables)
-)
-with open("./weights/optimizer", "rb") as f:
-    weights = pickle.load(f)
-optimizer.set_weights(weights)
-models[0].load_weights("./weights/start")
-models[1].load_weights("./weights/attn")
-models[2].load_weights("./weights/bridge")
-models[3].load_weights("./weights/conv")
-models[4].load_weights("./weights/collector")
-models[5].load_weights("./weights/out")
+# optimizer.apply_gradients(
+#     zip([tf.zeros_like(m) for m in trainableVariables], trainableVariables)
+# )
+# with open("./weights/optimizer", "rb") as f:
+#     weights = pickle.load(f)
+# optimizer.set_weights(weights)
+# models[0].load_weights("./weights/start")
+# models[1].load_weights("./weights/attn")
+# models[2].load_weights("./weights/bridge")
+# models[3].load_weights("./weights/conv")
+# models[4].load_weights("./weights/collector")
+# models[5].load_weights("./weights/out")
 
 if toTrain:
     trainDatas = loader()
@@ -510,7 +517,7 @@ if toTrain:
     while True:
         print("step:", step, ",loss:", *train_step(optimizer, next(trainDatas)))
         step += 1
-        if step % 10 == 0:
+        if step % 100 == 0:
             predict_step()
             print()
         if step % 100 == 0:
