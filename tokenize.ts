@@ -6,12 +6,14 @@ import fs from "fs";
 const segmenter = new TinySegmenter();
 const words: { [key: string]: number } = {};
 const lines: string[][] = [];
+const flatten = [];
 for (const nums of tokens) {
   if (nums[0] === 4 || nums.includes(char2num["["])) {
     continue;
   }
   nums.splice(0, 6);
   const strs = segmenter.segment(nums.map((v) => num2char[v]).join(""));
+  flatten.push(1, ...[...nums]);
   const result = [strs[0]];
   for (const seg of strs.slice(1)) {
     const last = result.at(-1) || "";
@@ -32,6 +34,11 @@ for (const word in words) {
   }
 }
 fs.writeFile("./words.json", JSON.stringify(words), (e) => {
+  if (e) {
+    throw e;
+  }
+});
+fs.writeFile("./flatten.json", JSON.stringify(flatten), (e) => {
   if (e) {
     throw e;
   }

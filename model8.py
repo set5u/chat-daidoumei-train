@@ -62,7 +62,8 @@ def useExtendedBERT(
     layersMaskInput = tf.keras.Input((maxLen**2, 1))
     layersStateInput = tf.keras.Input((maxLen**2, dModel), dtype=dtype)
     lastInput = layersInput
-    for _ in range(layers):
+    bypass = []
+    for i in range(layers):
         attn0 = tf.keras.layers.MultiHeadAttention(h, dModel // h)(
             lastInput,
             lastInput,
@@ -89,7 +90,13 @@ def useExtendedBERT(
         add2 = tf.keras.layers.Add()([dense1, dropout1])
         norm2 = tf.keras.layers.LayerNormalization()(add2)
         dropout2 = tf.keras.layers.Dropout(pDropout)(norm2)
+        bypass.append(lastInput)
         lastInput = dropout2
+        j = 1
+        while (i + 1) % j == 0:
+            temp = tf.keras.layers.Add()((bypass[i - j + 1], lastInput))
+            lastInput = tf.keras.layers.LayerNormalization()(temp)
+            j *= 2
     layerModel = tf.keras.Model(
         (layersInput, layersMaskInput, layersStateInput), lastInput
     )
@@ -104,7 +111,8 @@ def useExtendedBERT(
         (collectorInput, collectorPositionalEncodingInput)
     )
     lastInput = collectorPositionalEncoding
-    for _ in range(layers):
+    bypass = []
+    for i in range(layers):
         attn0 = tf.keras.layers.MultiHeadAttention(h, dModel // h)(
             lastInput,
             lastInput,
@@ -121,7 +129,13 @@ def useExtendedBERT(
         add2 = tf.keras.layers.Add()([dense1, dropout0])
         norm2 = tf.keras.layers.LayerNormalization()(add2)
         dropout2 = tf.keras.layers.Dropout(pDropout)(norm2)
+        bypass.append(lastInput)
         lastInput = dropout2
+        j = 1
+        while (i + 1) % j == 0:
+            temp = tf.keras.layers.Add()((bypass[i - j + 1], lastInput))
+            lastInput = tf.keras.layers.LayerNormalization()(temp)
+            j *= 2
     collectorModel = tf.keras.Model(
         (collectorPositionalEncodingInput, collectorInput), lastInput
     )
@@ -136,17 +150,17 @@ def useExtendedBERT(
     return start, layerModel, bridgeModel, convModel, collectorModel, outModel
 
 
-with open("./num2word.json", "r", -1, "utf-8") as f:
-    num2word = json.loads("".join(f.readlines()))
-with open("./word2num.json", "r", -1, "utf-8") as f:
-    word2num = json.loads("".join(f.readlines()))
-with open("./wordTokens.json", "r", -1, "utf-8") as f:
+with open("./num2char.json", "r", -1, "utf-8") as f:
+    num2char = json.loads("".join(f.readlines()))
+with open("./char2num.json", "r", -1, "utf-8") as f:
+    char2num = json.loads("".join(f.readlines()))
+with open("./flatten.json", "r", -1, "utf-8") as f:
     tokens = json.loads("".join(f.readlines()))
-depth = len(num2word)
-maxLen = 4
+depth = len(num2char)
+maxLen = 8
 # params =
-dModel = 256
-dFF = 512
+dModel = 128
+dFF = 256
 layers = 16
 h = 8
 models = useExtendedBERT(
@@ -235,7 +249,7 @@ def predict():
                 m += 1
             result = decoderSorted[~m + 1].numpy()
             inputs.append(result)
-            print(num2word[result], end="", flush=True)
+            print(num2char[result], end="", flush=True)
         states[0].append(funcs[2](rs))
         i = 0
         while len(states) != i:
@@ -464,7 +478,7 @@ def predict_step():
                 m += 1
             result = decoderSorted[~m + 1].numpy()
             inputs.append(result)
-            print(num2word[result], end="\n" if result == 1 else "", flush=True)
+            print(num2char[result], end="\n" if result == 1 else "", flush=True)
         states[0].append(funcs[2](rs))
         i = 0
         while len(states) != i:
