@@ -199,7 +199,7 @@ zeroPad = tf.constant(
 positionalEncodingInput = positionalEncoding(maxLen**2, dModel)[tf.newaxis]
 
 
-def collectArray(x):
+def collectArray(x, batchSize=batchSize):
     return tf.reshape(
         tf.transpose(x, (1, 0, 2, 3)),
         (batchSize, maxLen**2, dModel),
@@ -420,6 +420,76 @@ def train_step(optimizer, data):
     return tf.reduce_mean(loss, 1).numpy(), tf.reduce_mean(loss).numpy()
 
 
+def predict_step():
+    batchSize = 1
+    zeroPad = tf.constant(
+        [
+            [[0.0 for _ in range(dModel)] for _ in range(maxLen)]
+            for _ in range(batchSize)
+        ],
+        dtype=dtype,
+    )
+    state = tf.random.normal((batchSize, maxLen**2, dModel))
+    states = [[]]
+    for _ in range(maxLen ** (numRecur - 1)):
+        inputs = []
+        for i in range(maxLen**2):
+            r, m = funcs[0](
+                (
+                    positionalEncodingInput,
+                    tf.constant([inputs + [0] * (maxLen**2 - len(inputs))]),
+                )
+            )
+            rs = funcs[1]((r, m[:, :, tf.newaxis], state))
+            r = funcs[5](rs)
+            decoderSorted = tf.argsort(r[0][i])
+            results = []
+            sum = 0
+            for l in range(5):
+                c = r[0][i][decoderSorted[~l]].numpy()
+                sum += c
+                results.append(c)
+            r = random.random() * sum
+            t = 0
+            m = 0
+            while t < r:
+                t += results[m]
+                m += 1
+            result = decoderSorted[~m + 1].numpy()
+            inputs.append(result)
+            print(num2word[result], end="\n" if result == 1 else "", flush=True)
+        states[0].append(funcs[2](rs))
+        i = 0
+        while len(states) != i:
+            ss = states[i]
+            if len(ss) == maxLen:
+                state = funcs[4]((positionalEncodingInput, collectArray(ss, batchSize)))
+                if len(states) == i + 1:
+                    states.append([])
+                states[i + 1].append(funcs[3](state))
+                states[i] = []
+            else:
+                p = (
+                    funcs[3](
+                        collectArray(
+                            states[i - 1] + [zeroPad] * (maxLen - len(states[i - 1])),
+                            batchSize,
+                        )
+                    )
+                    if len(states) != 1
+                    else zeroPad
+                )
+                state = funcs[4](
+                    (
+                        positionalEncodingInput,
+                        collectArray(
+                            ss + [p] + [zeroPad] * (maxLen - len(ss) - 1), batchSize
+                        ),
+                    )
+                )
+            i += 1
+
+
 optimizer = tf.keras.optimizers.Adadelta(1.0)
 optimizer.apply_gradients(
     zip([tf.zeros_like(m) for m in trainableVariables], trainableVariables)
@@ -440,6 +510,9 @@ if toTrain:
     while True:
         print("step:", step, ",loss:", *train_step(optimizer, next(trainDatas)))
         step += 1
+        if step % 10 == 0:
+            predict_step()
+            print()
         if step % 100 == 0:
             models[0].save_weights("./weights/start")
             models[1].save_weights("./weights/attn")
