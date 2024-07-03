@@ -145,10 +145,10 @@ with open("./wordTokens.json", "r", -1, "utf-8") as f:
 depth = len(num2word)
 maxLen = 4
 # params =
-dModel = 256
-dFF = 512
-layers = 16
-h = 8
+dModel = 32
+dFF = 64
+layers = 4
+h = 4
 models = useExtendedBERT(
     dModel,
     dFF,
@@ -180,9 +180,9 @@ funcs.append(tf.function(lambda x, **kwargs: models[4](x, **kwargs), jit_compile
 funcs.append(tf.function(lambda x, **kwargs: models[5](x, **kwargs), jit_compile=False))
 
 
-batchSize = 64 if toTrain else 1
+batchSize = 1024 if toTrain else 1
 
-numRecur = 3  # len = 16,64,256,1024
+numRecur = 4  # len = 16,64,256,1024
 
 zeroState = tf.constant(
     [
