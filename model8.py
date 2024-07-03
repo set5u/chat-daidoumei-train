@@ -184,9 +184,9 @@ batchSize = 1024 if toTrain else 1
 
 numRecur = 4  # len = 16,64,256,1024
 
-zeroState = tf.constant(
+oneState = tf.constant(
     [
-        [[0.0 for _ in range(dModel)] for _ in range(maxLen**2)]
+        [[1.0 for _ in range(dModel)] for _ in range(maxLen**2)]
         for _ in range(batchSize)
     ],
     dtype=dtype,
@@ -293,7 +293,7 @@ def loader():
 
 def train_step(optimizer, data):
     xs, ys = data
-    state = zeroState
+    state = oneState
     states = [[]]
     startOuts = []
     maskOuts = []
