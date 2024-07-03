@@ -180,7 +180,7 @@ funcs.append(tf.function(lambda x, **kwargs: models[4](x, **kwargs), jit_compile
 funcs.append(tf.function(lambda x, **kwargs: models[5](x, **kwargs), jit_compile=False))
 
 
-batchSize = 64 if toTrain else 1
+batchSize = 256 if toTrain else 1
 
 numRecur = 1
 

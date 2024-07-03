@@ -79,6 +79,7 @@ for (const line of lines) {
             wordTokens.push(word2num["<euk>"]);
           }
           word = Array.from(word).slice(1).join("");
+          end = word.length;
           if (word.length) {
             continue;
           } else {

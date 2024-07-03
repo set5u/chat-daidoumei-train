@@ -6,7 +6,7 @@ import typescript from "@rollup/plugin-typescript";
 import babel from "@rollup/plugin-babel";
 
 export default {
-  input: ["tokenize.ts"],
+  input: ["tokenize.ts", "decode.ts"],
   output: {
     dir: "dist",
     format: "cjs",
@@ -32,6 +32,6 @@ export default {
       ],
       babelHelpers: "runtime",
     }),
-    // terser(),
+    terser(),
   ],
 };
