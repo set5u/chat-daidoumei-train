@@ -47,16 +47,14 @@ def useRecursiveBERT(
         )
         add0 = tf.keras.layers.Add()([attn0, lastInput])
         norm0 = tf.keras.layers.LayerNormalization()(add0)
-        for _ in range(maxLen):
-            temp = lastInput
-            lastInput = tf.keras.layers.Conv1D(dModel, 2, padding="same")(lastInput)
-            lastInput = tf.keras.layers.EinsumDense(
-                "abc,bcd->abd", (maxLen, dModel), "relu"
-            )(lastInput)
-            lastInput = tf.keras.layers.Add()([lastInput, temp])
-            lastInput = tf.keras.layers.LayerNormalization()(lastInput)
+        conv0 = tf.keras.layers.Conv1D(dModel, 2, padding="same")(lastInput)
+        dense2 = tf.keras.layers.EinsumDense("abc,bcd->abd", (maxLen, dModel), "relu")(
+            conv0
+        )
+        add1 = tf.keras.layers.Add()([dense2, lastInput])
+        norm1 = tf.keras.layers.LayerNormalization()(add1)
         attn1 = tf.keras.layers.MultiHeadAttention(h, dModel // h, dropout=pDropout)(
-            norm0, lastInput
+            norm0, norm1
         )
         add2 = tf.keras.layers.Add()([attn1, norm0])
         norm2 = tf.keras.layers.LayerNormalization()(add2)
@@ -218,14 +216,14 @@ def train():
 
 
 optimizer = tf.keras.optimizers.Adadelta(1.0)
-optimizer.apply_gradients(
-    zip([tf.zeros_like(m) for m in trainableVariables], trainableVariables)
-)
-with open("./weights/optimizer", "wb") as f:
-    optimizer.set_weights(pickle.load(f))
-models[0].load_weights("./weights/in")
-models[1].load_weights("./weights/middle")
-models[3].load_weights("./weights/out")
+# optimizer.apply_gradients(
+#     zip([tf.zeros_like(m) for m in trainableVariables], trainableVariables)
+# )
+# with open("./weights/optimizer", "wb") as f:
+#     optimizer.set_weights(pickle.load(f))
+# models[0].load_weights("./weights/in")
+# models[1].load_weights("./weights/middle")
+# models[3].load_weights("./weights/out")
 
 if toTrain:
     train()
