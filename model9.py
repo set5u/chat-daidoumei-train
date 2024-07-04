@@ -3,6 +3,7 @@ import tensorflow as tf
 import numpy as np
 import math
 import random
+import pickle
 
 
 def positionalEncoding(length, depth):
@@ -124,6 +125,12 @@ funcs = [
 toTrain = False
 batchSize = 32 if toTrain else 1
 
+trainableVariables = [
+    models[0].trainable_variables
+    + models[1].trainable_variables
+    + models[3].trainable_variables
+]
+
 
 def predict():
     inputs = []
@@ -178,9 +185,47 @@ def predict():
         print(num2word[result], end="\n" if result == 1 else "", flush=True)
 
 
-def train():
+numRecur = 3
+
+
+def train_step(optimizer, datas):
     pass
 
+
+def loader():
+    while True:
+        inputs = []
+        outputs = []
+        for _ in range(batchSize):
+            startIndex = random.randint(0, len(tokens) - maxLen**numRecur - 1)
+            inputs.append(tokens[startIndex : startIndex + maxLen**numRecur])
+            outputs.append(tokens[startIndex + maxLen**numRecur])
+        yield tf.constant(inputs), tf.constant(outputs)
+
+
+def train():
+    step = 0
+    datas = loader()
+    while True:
+        train_step(optimizer, next(datas))
+        step += 1
+        if step % 10 == 0:
+            models[0].save_weights("./weights/in")
+            models[1].save_weights("./weights/middle")
+            models[3].save_weights("./weights/out")
+            with open(".weights/optimizer") as f:
+                pickle.dump(optimizer.get_weights(), f)
+
+
+optimizer = tf.keras.optimizers.Adadelta(1.0)
+optimizer.apply_gradients(
+    zip([tf.zeros_like(m) for m in trainableVariables], trainableVariables)
+)
+with open("./weights/optimizer", "wb") as f:
+    optimizer.set_weights(pickle.load(f))
+models[0].load_weights("./weights/in")
+models[1].load_weights("./weights/middle")
+models[3].load_weights("./weights/out")
 
 if toTrain:
     train()
