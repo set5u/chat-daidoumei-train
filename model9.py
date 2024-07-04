@@ -31,9 +31,8 @@ def useRecursiveBERT(
 ):
     input = tf.keras.Input((maxLen,))
     embedding = tf.keras.layers.Embedding(depthInput, dModel)(input)
-    mul = tf.keras.layers.Multiply()([embedding, tf.constant([1 / math.sqrt(dModel)])])
     positionalEncodingOut = tf.keras.layers.Add()(
-        [mul, positionalEncoding(maxLen, dModel)[tf.newaxis]]
+        [embedding, positionalEncoding(maxLen, dModel)[tf.newaxis]]
     )
     inModel = tf.keras.Model(input, positionalEncodingOut)
     middleIn = tf.keras.Input((maxLen, dModel))
