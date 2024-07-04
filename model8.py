@@ -50,7 +50,9 @@ def useExtendedBERT(
         output_dim=dModel,
         mask_zero=True,
     )(input)
-    embeddingScale = tf.keras.layers.Multiply()((embedding, tf.constant([dModel**0.5])))
+    embeddingScale = tf.keras.layers.Multiply()(
+        (embedding, tf.constant([1 / dModel**0.5]))
+    )
     positionalEncoding = tf.keras.layers.Add()(
         (embeddingScale, positionalEncodingInput)
     )
