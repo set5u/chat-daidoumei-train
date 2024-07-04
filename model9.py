@@ -147,24 +147,25 @@ def predict():
             )
             for i in range(numRecur + 2)
         ]
-        middleOuts = tf.stack(
+        middleIns = tf.stack(
             [
                 tf.constant([[0.0 for _ in range(dModel)] for _ in range(maxLen)])
                 for _ in range(maxLen ** (numRecur - 1) - len(inputs) // maxLen - 1)
             ]
             + tf.unstack(inLayerOut)
         )
+        middleOutput = [middleIns[-(maxLen**j) :] for j in range(numRecur)]
         for i in range(numRecur):
             for j in range(numRecur - i):
-                middleInput = middleOuts[-(maxLen**j) :]
+                middleInput = middleOutput[j]
                 upperState = states[j + 2]
                 upperState = models[2](upperState)
                 upperState = tf.reshape(upperState, (-1, maxLen, dModel))
                 lowerState = states[j]
                 lowerState = tf.tile(states[j], (1 if j == 0 else maxLen, 1, 1))
-                middleOutput = funcs[1]((middleInput, upperState, lowerState))
-                states[j + 1] = middleOutput
-        out = funcs[3](middleOutput[0][tf.newaxis])
+                middleOutput[j] = funcs[1]((middleInput, upperState, lowerState))
+                states[j + 1] = middleOutput[j]
+        out = funcs[3](middleOutput[0])
         decoderSorted = tf.argsort(out[0])
         results = []
         sum = 0
