@@ -46,16 +46,16 @@ def useRecursiveBERT(
         )
         add0 = tf.keras.layers.Add()([attn0, lastInput])
         norm0 = tf.keras.layers.LayerNormalization()(add0)
-        temp = lastInput
         for _ in range(maxLen):
+            temp = lastInput
             lastInput = tf.keras.layers.Conv1D(dModel, 2, padding="same")(lastInput)
             lastInput = tf.keras.layers.EinsumDense(
                 "abc,bcd->abd", (maxLen, dModel), "relu"
             )(lastInput)
-        add1 = tf.keras.layers.Add()([lastInput, temp])
-        norm1 = tf.keras.layers.LayerNormalization()(add1)
+            lastInput = tf.keras.layers.Add()([lastInput, temp])
+            lastInput = tf.keras.layers.LayerNormalization()(lastInput)
         attn1 = tf.keras.layers.MultiHeadAttention(h, dModel // h, dropout=pDropout)(
-            norm0, norm1
+            norm0, lastInput
         )
         add2 = tf.keras.layers.Add()([attn1, norm0])
         norm2 = tf.keras.layers.LayerNormalization()(add2)
@@ -118,7 +118,7 @@ tf.keras.utils.plot_model(models[3], "out.png")
 funcs = [
     tf.function(lambda x, **kwargs: models[0](x, **kwargs)),
     tf.function(lambda x, **kwargs: models[1](x, **kwargs)),
-    tf.function(lambda x, **kwargs: models[2](x, **kwargs)),
+    None,
     tf.function(lambda x, **kwargs: models[3](x, **kwargs)),
 ]
 toTrain = False
