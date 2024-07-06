@@ -142,50 +142,6 @@ def predict():
         )
         numRecur = math.floor(math.log(max(len(inputs), 1), maxLen)) + 1
         inLayerOut = funcs[0](inputsReshaped)
-        states = [
-            tf.constant(
-                [
-                    [[1.0 for _ in range(dModel)] for _ in range(maxLen)]
-                    for _ in range(maxLen ** max(i - 1, 0))
-                ]
-            )
-            for i in range(numRecur + 2)
-        ]
-        middleIns = tf.stack(
-            [
-                tf.constant([[0.0 for _ in range(dModel)] for _ in range(maxLen)])
-                for _ in range(maxLen ** (numRecur - 1) - len(inputs) // maxLen - 1)
-            ]
-            + tf.unstack(inLayerOut)
-        )
-        middleOutput = [middleIns[-(maxLen**j) :] for j in range(numRecur)]
-        for i in range(numRecur):
-            for j in range(numRecur - i):
-                middleInput = middleOutput[j]
-                upperState = states[j + 2]
-                upperState = models[2](upperState)
-                upperState = tf.reshape(upperState, (-1, maxLen, dModel))
-                lowerState = states[j]
-                lowerState = tf.tile(states[j], (1 if j == 0 else maxLen, 1, 1))
-                middleOutput[j] = funcs[1]((middleInput, upperState, lowerState))
-                states[j + 1] = middleOutput[j]
-        out = funcs[3](middleOutput[0])
-        decoderSorted = tf.argsort(out[0][-1])
-        results = []
-        sum = 0
-        for l in range(5):
-            c = out[0][-1][decoderSorted[~l]].numpy()
-            sum += c
-            results.append(c)
-        r = random.random() * sum
-        t = 0
-        m = 0
-        while t < r:
-            t += results[m]
-            m += 1
-        result = decoderSorted[~m + 1].numpy()
-        inputs.append(result)
-        print(num2word[result], end="\n" if result == 1 else "", flush=True)
 
 
 numRecur = 3
