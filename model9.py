@@ -189,10 +189,13 @@ def predict():
 
 
 numRecur = 3
+lenRecur = 0
 
 
-def train_step(optimizer, datas):
-    pass
+def train_step(optimizer, loader):
+    global lenRecur
+    lenRecur = random.randint(1, 3)
+    xs, ys = next(loader)
 
 
 def loader():
@@ -210,7 +213,7 @@ def train():
     step = 0
     datas = loader()
     while True:
-        print("step:", step, "loss:", train_step(optimizer, next(datas)))
+        print("step:", step, "loss:", train_step(optimizer, datas))
         step += 1
         if step % 10 == 0:
             models[0].save_weights("./weights/in")
