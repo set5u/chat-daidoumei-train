@@ -133,6 +133,8 @@ trainableVariables = [
     + models[3].trainable_variables
 ]
 
+numRecur = 3
+lenRecur = 0
 
 def predict():
     inputs = []
@@ -142,10 +144,6 @@ def predict():
         )
         numRecur = math.floor(math.log(max(len(inputs), 1), maxLen)) + 1
         inLayerOut = funcs[0](inputsReshaped)
-
-
-numRecur = 3
-lenRecur = 0
 
 
 def train_step(optimizer, loader):
