@@ -43,7 +43,7 @@ def useRecursiveBERT(
     bypass = []
     for i in range(layers):
         attn0 = tf.keras.layers.MultiHeadAttention(h, dModel // h, dropout=pDropout)(
-            lastInput, lastInput
+            lastInput, lastInput, use_causal_mask=True
         )
         add0 = tf.keras.layers.Add()([attn0, lastInput])
         norm0 = tf.keras.layers.LayerNormalization()(add0)
@@ -88,7 +88,11 @@ def useRecursiveBERT(
     )
     maxPool = tf.keras.layers.MaxPool1D(maxLen, maxLen)
     outIn = tf.keras.Input((maxLen, dModel))
-    outDense = tf.keras.layers.EinsumDense("abc,bcd->ad", (depthOutput,), "softmax")
+    outDense = tf.keras.layers.EinsumDense(
+        "abc,cd->abd",
+        (maxLen, depthOutput),
+        "softmax",
+    )
     outModel = tf.keras.Model(outIn, outDense(outIn))
     return inModel, middleModel, maxPool, outModel
 
@@ -166,11 +170,11 @@ def predict():
                 middleOutput[j] = funcs[1]((middleInput, upperState, lowerState))
                 states[j + 1] = middleOutput[j]
         out = funcs[3](middleOutput[0])
-        decoderSorted = tf.argsort(out[0])
+        decoderSorted = tf.argsort(out[0][-1])
         results = []
         sum = 0
         for l in range(5):
-            c = out[0][decoderSorted[~l]].numpy()
+            c = out[0][-1][decoderSorted[~l]].numpy()
             sum += c
             results.append(c)
         r = random.random() * sum
@@ -198,7 +202,7 @@ def loader():
         for _ in range(batchSize):
             startIndex = random.randint(0, len(tokens) - maxLen**numRecur - 1)
             inputs.append(tokens[startIndex : startIndex + maxLen**numRecur])
-            outputs.append(tokens[startIndex + maxLen**numRecur])
+            outputs.append(tokens[startIndex + 1 : startIndex + maxLen**numRecur + 1])
         yield tf.constant(inputs), tf.constant(outputs)
 
 
