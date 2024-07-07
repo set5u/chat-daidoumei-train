@@ -107,7 +107,7 @@ with open("./wordTokens.json", "r", -1, "utf-8") as f:
 depth = len(num2word)
 dModel = 128
 dFF = 256
-h = 8
+h = 4
 maxLen = 8
 pDropout = 0.2
 layers = 8
@@ -136,6 +136,7 @@ trainableVariables = [
 numRecur = 3
 lenRecur = 0
 
+
 def predict():
     inputs = []
     while True:
@@ -144,6 +145,18 @@ def predict():
         )
         numRecur = math.floor(math.log(max(len(inputs), 1), maxLen)) + 1
         inLayerOut = funcs[0](inputsReshaped)
+        middleLayerStates = [
+            tf.constant(
+                [
+                    [[1.0 for _ in range(dModel)] for _ in range(maxLen)]
+                    for _ in range(maxLen ** max(i - 1, 0) * batchSize)
+                ]
+            )
+            for i in range(numRecur + 2)
+        ]
+        middleLayerIn = inLayerOut
+
+        break
 
 
 def train_step(optimizer, loader):
